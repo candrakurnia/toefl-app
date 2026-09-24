@@ -13,7 +13,7 @@ import { BadRequestException } from '@nestjs/common';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AutosaveDto, HeartbeatDto, ViolationDto } from './dto';
+import { AutosaveDto, HeartbeatDto, SectionNextDto, ViolationDto } from './dto';
 import { SessionsService } from './sessions.service';
 
 @Controller('sessions')
@@ -43,14 +43,14 @@ export class SessionsController {
 
   @HttpCode(200)
   @Post(':id/sections/next')
-  next(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.sessions.next(user.id, id);
+  next(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body?: SectionNextDto) {
+    return this.sessions.next(user.id, id, body?.fromSectionId);
   }
 
   @HttpCode(200)
   @Post(':id/heartbeat')
-  heartbeat(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: HeartbeatDto) {
-    return this.sessions.heartbeat(user.id, id, body);
+  heartbeat(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body?: HeartbeatDto) {
+    return this.sessions.heartbeat(user.id, id, body ?? {});
   }
 
   @HttpCode(200)
