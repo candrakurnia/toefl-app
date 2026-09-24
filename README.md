@@ -1,6 +1,6 @@
 # TOEFL Practice
 
-Monorepo for a timed TOEFL practice app. The API owns the clocks, sessions, and scoring status. The web app covers account entry and the pra-test screen that starts a session.
+Monorepo for a timed TOEFL practice app. The API owns the clocks, sessions, and scoring status. The web app covers account entry, the pra-test screen, the exam session, and attempt results.
 
 The MVP contract is in [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
 
@@ -44,7 +44,7 @@ pnpm --filter @toefl/web dev
 - Web: http://localhost:3000
 - API: http://localhost:3001
 
-Register, sign in, open the practice test, and start it. Start creates the only active session for that user and exam and returns `overallEndsAt` and `sectionEndsAt`.
+Register, sign in, open the practice test, and choose Mulai. That creates the only active session for that user and exam, then opens the session. The sticky bar shows the section timer and the 24-hour overall timer from `serverNow`, `sectionEndsAt`, and `overallEndsAt`. Neither clock pauses on the client. Leaving fullscreen or hiding the tab records a violation and leaves both timers running. Submit opens the attempt, with Pending AI scoring for essay and speaking. Past attempts are listed at `/attempts`.
 
 Check types and production builds:
 

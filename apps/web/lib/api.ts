@@ -9,12 +9,22 @@ let accessToken: string | null = null;
 let hydrated = false;
 
 export class ApiError extends Error {
+  readonly body: unknown;
+
   constructor(
     public status: number,
     message: string,
+    body: unknown = null,
   ) {
     super(message);
+    this.body = body;
   }
+}
+
+export function sessionIdFromError(error: unknown): string | null {
+  if (!(error instanceof ApiError) || !error.body || typeof error.body !== 'object') return null;
+  const sessionId = (error.body as { sessionId?: unknown }).sessionId;
+  return typeof sessionId === 'string' ? sessionId : null;
 }
 
 export function getAccessToken() {
@@ -97,10 +107,32 @@ export async function api<T>(path: string, init: RequestInit = {}, retry = true)
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new ApiError(response.status, messageFrom(body));
+    throw new ApiError(response.status, messageFrom(body), body);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+export async function apiBlob(path: string, retry = true): Promise<Blob> {
+  const headers = new Headers();
+  const token = getAccessToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers,
+    credentials: 'include',
+  });
+
+  if (response.status === 401 && retry && !path.startsWith('/auth/')) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) return apiBlob(path, false);
+  }
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new ApiError(response.status, messageFrom(body), body);
+  }
+  return response.blob();
 }
 
 function messageFrom(body: unknown) {
