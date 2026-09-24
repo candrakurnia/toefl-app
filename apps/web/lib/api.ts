@@ -21,10 +21,29 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * `POST /exams/:id/sessions` returns 409 `{ message, sessionId }` when an active
+ * session already exists. Nest may also nest that object under `message`.
+ */
 export function sessionIdFromError(error: unknown): string | null {
-  if (!(error instanceof ApiError) || !error.body || typeof error.body !== 'object') return null;
-  const sessionId = (error.body as { sessionId?: unknown }).sessionId;
-  return typeof sessionId === 'string' ? sessionId : null;
+  if (!(error instanceof ApiError)) return null;
+  return sessionIdIn(error.body);
+}
+
+function sessionIdIn(value: unknown, depth = 0): string | null {
+  if (depth > 3 || !value || typeof value !== 'object') return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = sessionIdIn(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.sessionId === 'string' && record.sessionId.length > 0) {
+    return record.sessionId;
+  }
+  return sessionIdIn(record.message, depth + 1) ?? sessionIdIn(record.response, depth + 1);
 }
 
 export function getAccessToken() {

@@ -3,8 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect } from 'react';
-import { ExamDetail, SessionState } from '@toefl/shared';
+import { useEffect, useRef } from 'react';
+import { ExamDetail, ExamSummary, SessionState } from '@toefl/shared';
 import { Shell } from '../../../components/shell';
 import { useAuth } from '../../../components/providers';
 import { ApiError, api, sessionIdFromError } from '../../../lib/api';
@@ -16,9 +16,15 @@ export default function ExamDetailPage() {
   const { token, ready } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const fallbackNav = useRef<number | null>(null);
   useEffect(() => {
     if (ready && !token) router.replace('/login');
   }, [ready, token, router]);
+  useEffect(() => {
+    return () => {
+      if (fallbackNav.current !== null) window.clearTimeout(fallbackNav.current);
+    };
+  }, []);
 
   const exam = useQuery({
     queryKey: ['exam', examId],
@@ -26,17 +32,40 @@ export default function ExamDetailPage() {
     enabled: ready && Boolean(token) && Boolean(examId),
   });
 
-  const start = useMutation({
-    mutationFn: () => api<SessionState>(`/exams/${examId}/sessions`, { method: 'POST' }),
-    onSuccess: (session) => {
-      void queryClient.invalidateQueries({ queryKey: ['exams'] });
-      router.push(`/sessions/${session.id}`);
-    },
-    onError: (error) => {
-      const existing = sessionIdFromError(error);
-      if (existing) router.push(`/sessions/${existing}`);
-    },
+  const exams = useQuery({
+    queryKey: ['exams'],
+    queryFn: () => api<ExamSummary[]>('/exams'),
+    enabled: ready && Boolean(token),
   });
+  const inProgress = exams.data?.find((item) => item.id === examId)?.status === 'in_progress';
+
+  const start = useMutation({
+    mutationFn: (id: string) => api<SessionState>(`/exams/${id}/sessions`, { method: 'POST' }),
+  });
+
+  function openSession(sessionId: string) {
+    void queryClient.invalidateQueries({ queryKey: ['exams'] });
+    const path = `/sessions/${sessionId}`;
+    router.push(path);
+    // Fullscreen can swallow the client navigation and leave the pra-test on screen.
+    if (fallbackNav.current !== null) window.clearTimeout(fallbackNav.current);
+    fallbackNav.current = window.setTimeout(() => {
+      fallbackNav.current = null;
+      if (window.location.pathname !== path) window.location.assign(path);
+    }, 1200);
+  }
+
+  async function begin() {
+    if (!examId) return;
+    void document.documentElement.requestFullscreen?.().catch(() => undefined);
+    try {
+      const session = await start.mutateAsync(examId);
+      openSession(session.id);
+    } catch (error) {
+      const existing = sessionIdFromError(error);
+      if (existing) openSession(existing);
+    }
+  }
 
   return (
     <Shell
@@ -103,20 +132,27 @@ export default function ExamDetailPage() {
               </ul>
             </section>
             <section className="rounded-card bg-primary p-5 text-white">
-              <h2 className="font-serif text-xl">Mulai</h2>
+              <h2 className="font-serif text-xl">{inProgress ? 'Lanjutkan' : 'Mulai'}</h2>
               <p className="mt-2 text-sm leading-6 text-white/85">
-                Mulai opens the only active session for this exam and begins both timers.
+                {inProgress
+                  ? 'Lanjutkan opens the active session and its questions. Both timers are already running.'
+                  : 'Mulai opens the only active session for this exam and begins both timers.'}
               </p>
               <button
                 type="button"
-                disabled={start.isPending}
+                disabled={start.isPending || !examId}
                 onClick={() => {
-                  void document.documentElement.requestFullscreen?.().catch(() => undefined);
-                  start.mutate();
+                  void begin();
                 }}
                 className="mt-4 w-full rounded-control bg-white px-4 py-2.5 text-sm font-medium text-ink disabled:opacity-60"
               >
-                {start.isPending ? 'Starting…' : 'Mulai'}
+                {start.isPending
+                  ? inProgress
+                    ? 'Opening…'
+                    : 'Starting…'
+                  : inProgress
+                    ? 'Lanjutkan'
+                    : 'Mulai'}
               </button>
               {start.isError && !sessionIdFromError(start.error) ? (
                 <p className="mt-3 text-sm text-white">
