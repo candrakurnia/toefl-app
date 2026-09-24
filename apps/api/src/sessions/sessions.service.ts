@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, Session } from '@prisma/client';
@@ -32,8 +33,14 @@ type SessionRecord = Prisma.SessionGetPayload<{ include: typeof SESSION_INCLUDE 
 
 const QUESTION_TYPES = new Set<string>(['multiple_choice', 'essay', 'listening', 'speaking']);
 
+/** Redis sorted set of active sessions, scored by the next deadline in epoch ms. */
+const SESSION_DUE_KEY = 'sessions:due';
+
 @Injectable()
 export class SessionsService {
+  private readonly logger = new Logger(SessionsService.name);
+  private sweeping = false;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
@@ -76,6 +83,7 @@ export class SessionsService {
         },
         include: SESSION_INCLUDE,
       });
+      await this.schedule(session);
       return this.toState(session);
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -92,12 +100,12 @@ export class SessionsService {
   }
 
   async get(userId: string, sessionId: string): Promise<SessionState> {
-    const session = await this.reconcile(await this.loadOwned(userId, sessionId));
+    const session = await this.enforce(await this.loadOwned(userId, sessionId));
     return this.toState(session);
   }
 
   async questions(userId: string, sessionId: string, sectionId: string): Promise<SectionQuestions> {
-    const session = await this.reconcile(await this.loadOwned(userId, sessionId));
+    const session = await this.enforce(await this.loadOwned(userId, sessionId));
     const section = await this.prisma.section.findFirst({
       where: { id: sectionId, examId: session.examId },
       include: { questions: { orderBy: { order: 'asc' } } },
@@ -125,7 +133,7 @@ export class SessionsService {
   }
 
   async autosave(userId: string, sessionId: string, questionId: string, payload: unknown) {
-    const session = await this.reconcile(await this.loadOwned(userId, sessionId));
+    const session = await this.enforce(await this.loadOwned(userId, sessionId));
     this.assertActive(session);
     const question = await this.prisma.question.findFirst({
       where: { id: questionId, section: { examId: session.examId } },
@@ -155,13 +163,25 @@ export class SessionsService {
     };
   }
 
-  async next(userId: string, sessionId: string): Promise<SectionNextResponse> {
+  async next(
+    userId: string,
+    sessionId: string,
+    fromSectionId?: string,
+  ): Promise<SectionNextResponse> {
     const loaded = await this.loadOwned(userId, sessionId);
+    if (fromSectionId && fromSectionId !== loaded.currentSectionId) {
+      const synced = await this.enforce(loaded);
+      return {
+        submitted: synced.status !== 'active',
+        session: this.toState(synced),
+      };
+    }
     const now = new Date();
-    const sectionExpired =
-      loaded.status === 'active' && (now >= loaded.sectionEndsAt || now >= loaded.overallEndsAt);
-    const reconciled = await this.reconcile(loaded);
-    const session = sectionExpired ? reconciled : await this.advanceIfActive(reconciled, false);
+    const due =
+      loaded.status === 'active' &&
+      (now.getTime() >= loaded.sectionEndsAt.getTime() ||
+        now.getTime() >= loaded.overallEndsAt.getTime());
+    const session = due ? await this.enforce(loaded) : await this.advance(loaded, false, 0);
     return {
       submitted: session.status !== 'active',
       session: this.toState(session),
@@ -174,7 +194,8 @@ export class SessionsService {
     flags: { visibility?: 'visible' | 'hidden'; fullscreen?: boolean },
   ): Promise<HeartbeatResponse> {
     const before = await this.loadOwned(userId, sessionId);
-    const session = await this.reconcile(before);
+    const session = await this.enforce(before);
+    // Presence is diagnostic. It does not move either deadline.
     await this.redis.setex(
       `session:${session.id}:presence`,
       120,
@@ -186,7 +207,7 @@ export class SessionsService {
       sectionEndsAt: session.sectionEndsAt.toISOString(),
       currentSectionId: session.currentSectionId,
       status: asStatus(session.status),
-      forceSubmitted: before.status === 'active' && session.status === 'expired',
+      forceSubmitted: session.status === 'expired',
     };
   }
 
@@ -196,11 +217,11 @@ export class SessionsService {
     type: ViolationType,
     at: string,
   ): Promise<ViolationRecord> {
-    const session = await this.reconcile(await this.loadOwned(userId, sessionId));
+    const session = await this.loadOwned(userId, sessionId);
     this.assertActive(session);
     const when = new Date(at);
     if (Number.isNaN(when.getTime())) throw new BadRequestException('at is not a valid time');
-    // Logged only. overallEndsAt and sectionEndsAt stay unchanged.
+    // A violation is a log line. It does not pause either timer and it does not submit.
     const violation = await this.prisma.violation.create({
       data: { sessionId: session.id, type, at: when },
     });
@@ -208,41 +229,55 @@ export class SessionsService {
   }
 
   async submit(userId: string, sessionId: string): Promise<SubmitResult> {
-    const session = await this.reconcile(await this.loadOwned(userId, sessionId));
+    const session = await this.loadOwned(userId, sessionId);
     if (session.status !== 'active') {
-      const attempt = await this.prisma.attempt.findUnique({ where: { sessionId: session.id } });
-      if (!attempt) throw new ConflictException('Session is no longer active');
-      return { attemptId: attempt.id, forced: attempt.forced };
+      return this.existingResult(session.id);
     }
-    const attemptId = await this.finalize(session.id, false);
-    return { attemptId, forced: false };
+    const now = new Date();
+    const forced = await this.deadlineForcesSubmit(session, now);
+    const attemptId = await this.finalize(session.id, forced);
+    const attempt = await this.prisma.attempt.findUnique({ where: { id: attemptId } });
+    if (!attempt) throw new NotFoundException('Attempt not found');
+    return { attemptId: attempt.id, forced: attempt.forced };
   }
 
-  private async reconcile(session: SessionRecord): Promise<SessionRecord> {
-    if (session.status !== 'active') return session;
-    const now = new Date();
-    if (now >= session.overallEndsAt) {
+  /**
+   * Applies deadlines that have already passed.
+   * Overall deadline force-submits. A section deadline advances once, or force-submits on the last section.
+   */
+  private async enforce(session: SessionRecord, steps = 0): Promise<SessionRecord> {
+    if (session.status !== 'active') {
+      await this.schedule(session);
+      return session;
+    }
+    if (steps > 24) {
       await this.finalize(session.id, true);
       return this.reload(session.id);
     }
-    if (now >= session.sectionEndsAt) {
-      return this.advanceIfActive(session, true);
+    const now = new Date();
+    if (now.getTime() >= session.overallEndsAt.getTime()) {
+      await this.finalize(session.id, true);
+      return this.reload(session.id);
     }
+    if (now.getTime() >= session.sectionEndsAt.getTime()) {
+      return this.advance(session, true, steps);
+    }
+    await this.schedule(session);
     return session;
   }
 
-  private async advanceIfActive(
+  /** Closes the current section. `forced` is true when the close is caused by a deadline. */
+  private async advance(
     session: SessionRecord,
     forced: boolean,
-    steps = 0,
+    steps: number,
   ): Promise<SessionRecord> {
-    if (session.status !== 'active') return session;
-    if (steps > 20) {
-      await this.finalize(session.id, true);
-      return this.reload(session.id);
+    if (session.status !== 'active') {
+      await this.schedule(session);
+      return session;
     }
     const now = new Date();
-    if (now >= session.overallEndsAt) {
+    if (now.getTime() >= session.overallEndsAt.getTime()) {
       await this.finalize(session.id, true);
       return this.reload(session.id);
     }
@@ -262,15 +297,100 @@ export class SessionsService {
       new Date(now.getTime() + next.durationSec * 1000),
       session.overallEndsAt,
     );
-    const updated = await this.prisma.session.update({
-      where: { id: session.id },
+    const moved = await this.prisma.session.updateMany({
+      where: {
+        id: session.id,
+        status: 'active',
+        currentSectionId: session.currentSectionId,
+      },
       data: { currentSectionId: next.id, sectionEndsAt },
-      include: SESSION_INCLUDE,
     });
-    if (new Date() >= updated.sectionEndsAt || new Date() >= updated.overallEndsAt) {
-      return this.advanceIfActive(updated, true, steps + 1);
+    const updated = await this.reload(session.id);
+    if (moved.count === 0) {
+      return this.enforce(updated, steps + 1);
     }
+    const after = new Date();
+    if (
+      after.getTime() >= updated.sectionEndsAt.getTime() ||
+      after.getTime() >= updated.overallEndsAt.getTime()
+    ) {
+      return this.enforce(updated, steps + 1);
+    }
+    await this.schedule(updated);
     return updated;
+  }
+
+  /** Force-submit or auto-advance sessions whose deadline has passed, even with no open client. */
+  async sweepDue(): Promise<void> {
+    if (this.sweeping) return;
+    this.sweeping = true;
+    try {
+      const now = new Date();
+      const ids = new Set<string>(
+        await this.redis.zrangebyscore(SESSION_DUE_KEY, 0, now.getTime()),
+      );
+      const rows = await this.prisma.session.findMany({
+        where: {
+          status: 'active',
+          OR: [{ overallEndsAt: { lte: now } }, { sectionEndsAt: { lte: now } }],
+        },
+        select: { id: true },
+        take: 100,
+      });
+      for (const row of rows) ids.add(row.id);
+      for (const id of ids) {
+        try {
+          const session = await this.prisma.session.findUnique({
+            where: { id },
+            include: SESSION_INCLUDE,
+          });
+          if (!session || session.status !== 'active') {
+            await this.redis.zrem(SESSION_DUE_KEY, id);
+            continue;
+          }
+          await this.enforce(session);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'unknown error';
+          // Keep sweeping other sessions. The next tick retries this one.
+          this.logger.warn(`Deadline sweep failed for ${id}: ${message}`);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Deadline sweep failed: ${message}`);
+    } finally {
+      this.sweeping = false;
+    }
+  }
+
+  private async existingResult(sessionId: string): Promise<SubmitResult> {
+    const attempt = await this.prisma.attempt.findUnique({ where: { sessionId } });
+    if (!attempt) throw new ConflictException('Session is no longer active');
+    return { attemptId: attempt.id, forced: attempt.forced };
+  }
+
+  /** Overall deadline, or a section deadline on the final section, closes the exam. */
+  private async deadlineForcesSubmit(session: SessionRecord, now: Date): Promise<boolean> {
+    if (now.getTime() >= session.overallEndsAt.getTime()) return true;
+    if (now.getTime() < session.sectionEndsAt.getTime()) return false;
+    const sections = await this.prisma.section.findMany({
+      where: { examId: session.examId },
+      orderBy: { order: 'asc' },
+      select: { id: true },
+    });
+    const index = sections.findIndex((section) => section.id === session.currentSectionId);
+    return index < 0 || index >= sections.length - 1;
+  }
+
+  private async schedule(
+    session: Pick<Session, 'id' | 'status' | 'sectionEndsAt' | 'overallEndsAt'>,
+  ) {
+    if (session.status !== 'active') {
+      await this.redis.zrem(SESSION_DUE_KEY, session.id);
+      return;
+    }
+    const dueAt = Math.min(session.sectionEndsAt.getTime(), session.overallEndsAt.getTime());
+    await this.redis.zadd(SESSION_DUE_KEY, dueAt, session.id);
   }
 
   private async finalize(sessionId: string, forced: boolean): Promise<string> {
@@ -290,6 +410,8 @@ export class SessionsService {
         });
         if (!session) throw new NotFoundException('Session not found');
         if (session.status !== 'active') {
+          const raced = await tx.attempt.findUnique({ where: { sessionId } });
+          if (raced) return raced.id;
           throw new ConflictException('Session is no longer active');
         }
 
@@ -310,12 +432,14 @@ export class SessionsService {
         });
         return attempt.id;
       });
+      await this.redis.zrem(SESSION_DUE_KEY, sessionId);
       await this.scoring.enqueue(attemptId);
       return attemptId;
     } catch (error) {
-      if (isUniqueViolation(error)) {
-        const existing = await this.prisma.attempt.findUnique({ where: { sessionId } });
-        if (existing) return existing.id;
+      const existing = await this.prisma.attempt.findUnique({ where: { sessionId } });
+      if (existing && (isUniqueViolation(error) || error instanceof ConflictException)) {
+        await this.redis.zrem(SESSION_DUE_KEY, sessionId);
+        return existing.id;
       }
       throw error;
     }

@@ -22,10 +22,10 @@
 - `GET /sessions/:id` → state + `serverNow`, `overallEndsAt`, `sectionEndsAt`, `currentSectionId`, answers snapshot, `violations[]`
 - `GET /sessions/:id/questions?sectionId=` → questions for section (MC / essay / listening / speaking payloads; no correct answers until submit where applicable)
 - `PATCH /sessions/:id/answers` autosave `{ questionId, payload }`
-- `POST /sessions/:id/sections/next` — also auto-advance / force-submit section when `sectionEndsAt` hit
-- `POST /sessions/:id/heartbeat` sync + optional visibility/fullscreen flags
-- `POST /sessions/:id/violations` `{ type: fullscreen_exit|tab_blur, at }`
-- `POST /sessions/:id/submit` or server force-submit on deadline → attempt + partial scores; essay/speaking `Pending`
+- `POST /sessions/:id/sections/next` — advance to the next section. Optional `{ fromSectionId }`. If that section is no longer current, deadlines are synced and the server does not advance again. When `sectionEndsAt` has passed, the server auto-advances (or force-submits on the last section) on this route, on `GET /sessions/:id`, on heartbeat, and on a background sweep
+- `POST /sessions/:id/heartbeat` sync + optional visibility/fullscreen flags. Flags do not pause either timer
+- `POST /sessions/:id/violations` `{ type: fullscreen_exit|tab_blur, at }` — log only; does not pause timers or submit
+- `POST /sessions/:id/submit` or server force-submit on deadline → attempt + partial scores; essay/speaking `pending`
 
 ## Timers (server-authoritative)
 

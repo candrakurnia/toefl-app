@@ -1,8 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import Redis from 'ioredis';
 
 @Injectable()
-export class RedisService implements OnModuleDestroy {
+export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   readonly client: Redis;
 
@@ -17,6 +17,10 @@ export class RedisService implements OnModuleDestroy {
     this.client.on('error', (error: Error) => {
       this.logger.warn(`Redis error: ${error.message}`);
     });
+  }
+
+  async onModuleInit() {
+    await this.ping();
   }
 
   async ping(): Promise<boolean> {
@@ -34,6 +38,7 @@ export class RedisService implements OnModuleDestroy {
   }
 
   async lpush(key: string, value: string): Promise<boolean> {
+    if (!(await this.ping())) return false;
     try {
       await this.client.lpush(key, value);
       return true;
@@ -45,6 +50,7 @@ export class RedisService implements OnModuleDestroy {
   }
 
   async lpop(key: string): Promise<string | null> {
+    if (!(await this.ping())) return null;
     try {
       return await this.client.lpop(key);
     } catch {
@@ -53,11 +59,44 @@ export class RedisService implements OnModuleDestroy {
   }
 
   async setex(key: string, ttlSec: number, value: string): Promise<void> {
+    if (!(await this.ping())) return;
     try {
       await this.client.set(key, value, 'EX', ttlSec);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown error';
       this.logger.warn(`Redis SET failed: ${message}`);
+    }
+  }
+
+  /** Earliest section or overall deadline, in epoch milliseconds. */
+  async zadd(key: string, score: number, member: string): Promise<void> {
+    if (!(await this.ping())) return;
+    try {
+      await this.client.zadd(key, score, member);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Redis ZADD failed: ${message}`);
+    }
+  }
+
+  async zrem(key: string, member: string): Promise<void> {
+    if (!(await this.ping())) return;
+    try {
+      await this.client.zrem(key, member);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Redis ZREM failed: ${message}`);
+    }
+  }
+
+  async zrangebyscore(key: string, min: number, max: number): Promise<string[]> {
+    if (!(await this.ping())) return [];
+    try {
+      return await this.client.zrangebyscore(key, min, max);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Redis ZRANGEBYSCORE failed: ${message}`);
+      return [];
     }
   }
 

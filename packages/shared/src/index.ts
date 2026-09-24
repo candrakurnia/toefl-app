@@ -123,6 +123,14 @@ export interface AutosaveResponse {
   updatedAt: string;
 }
 
+export interface SectionNextRequest {
+  /**
+   * Section the client is leaving. If the server has already moved on,
+   * the call syncs deadlines and does not advance a second time.
+   */
+  fromSectionId?: string;
+}
+
 export interface SectionNextResponse {
   submitted: boolean;
   session: SessionState;
