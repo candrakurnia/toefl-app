@@ -52,28 +52,12 @@ export function formatCountdown(ms: number) {
   return `${mm}:${ss}`;
 }
 
+/** Known total. Null `overallScore` means a section is still unscored. */
 export function formatOverall(overallScore: number | null, overallMaxScore: number) {
-  if (overallScore === null) return `Overall pending / ${overallMaxScore}`;
-  return `Overall ${overallScore} / ${overallMaxScore}`;
-}
-
-export function formatViolations(violations: {
-  total: number;
-  fullscreenExit: number;
-  tabBlur: number;
-}) {
-  if (violations.total === 0) return 'Violations recorded: 0';
-  const parts: string[] = [];
-  if (violations.fullscreenExit > 0) {
-    const label = violations.fullscreenExit === 1 ? 'exit' : 'exits';
-    parts.push(`${violations.fullscreenExit} fullscreen ${label}`);
+  if (overallScore === null) {
+    return overallMaxScore > 0 ? `Pending / ${overallMaxScore}` : 'Pending';
   }
-  if (violations.tabBlur > 0) {
-    const label = violations.tabBlur === 1 ? 'blur' : 'blurs';
-    parts.push(`${violations.tabBlur} tab ${label}`);
-  }
-  const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
-  return `Violations recorded: ${violations.total}${detail}`;
+  return `${overallScore} / ${overallMaxScore}`;
 }
 
 export function formatDateTime(iso: string) {
@@ -82,13 +66,19 @@ export function formatDateTime(iso: string) {
   return date.toLocaleString();
 }
 
+/** Pending or Scored. History uses Pending as the badge while a section is unscored. */
 export function formatScoringStatus(status: string) {
   switch (status) {
     case 'pending':
-      return 'Pending AI scoring';
+      return 'Pending';
     case 'scored':
       return 'Scored';
     default:
       return status;
   }
+}
+
+export function formatPoints(earned: number, max: number) {
+  if (max <= 0) return earned === 0 ? '—' : String(earned);
+  return `${earned} / ${max}`;
 }
