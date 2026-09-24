@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
+import { SampleNotice } from './sample-notice';
 import { useAuth } from './providers';
 
 export function Shell({
@@ -11,13 +13,14 @@ export function Shell({
   action?: React.ReactNode;
 }) {
   const { token, logout } = useAuth();
+  const [signingOut, setSigningOut] = useState(false);
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
-      <header className="border-b border-ink/10 bg-card">
+      <header className="border-b border-ink/10 bg-card/90 backdrop-blur-sm">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4">
           <Link href="/exams" className="flex items-center gap-3">
-            <span className="grid h-9 w-9 place-items-center rounded-control bg-primary text-sm font-semibold text-white">
+            <span className="grid h-9 w-9 place-items-center rounded-control bg-primary text-sm font-semibold text-white shadow-card">
               T
             </span>
             <span>
@@ -32,16 +35,23 @@ export function Shell({
             {token ? (
               <button
                 type="button"
-                onClick={logout}
-                className="rounded-control border border-ink/15 px-3 py-2 text-sm text-ink/80"
+                disabled={signingOut}
+                onClick={() => {
+                  setSigningOut(true);
+                  void logout().finally(() => setSigningOut(false));
+                }}
+                className="rounded-control border border-ink/15 bg-white px-3 py-2 text-sm text-ink/80 hover:border-ink/25 disabled:opacity-60"
               >
-                Sign out
+                {signingOut ? 'Signing out…' : 'Sign out'}
               </button>
             ) : null}
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-5xl px-5 py-10">{children}</main>
+      <main className="mx-auto max-w-5xl px-5 py-10">
+        <SampleNotice />
+        {children}
+      </main>
     </div>
   );
 }

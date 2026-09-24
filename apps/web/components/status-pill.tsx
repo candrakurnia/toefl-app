@@ -3,7 +3,7 @@ import { formatStatus } from '../lib/format';
 const styles: Record<string, string> = {
   not_started: 'bg-ink/5 text-ink/70',
   in_progress: 'bg-primary/10 text-primary',
-  completed: 'bg-emerald-100 text-emerald-800',
+  completed: 'bg-emerald-50 text-emerald-800',
 };
 
 export function StatusPill({ status }: { status: string }) {

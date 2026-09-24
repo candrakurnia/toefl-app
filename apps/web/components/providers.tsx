@@ -2,12 +2,17 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { getAccessToken, setAccessToken, subscribeAccessToken } from '../lib/api';
+import {
+  getAccessToken,
+  refreshAccessToken,
+  setAccessToken,
+  subscribeAccessToken,
+} from '../lib/api';
 
 interface AuthContextValue {
   token: string | null;
   ready: boolean;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -31,18 +36,42 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    setToken(getAccessToken());
-    setReady(true);
-    return subscribeAccessToken(setToken);
+    let active = true;
+    const unsubscribe = subscribeAccessToken((next) => {
+      if (active) setToken(next);
+    });
+    const existing = getAccessToken();
+    setToken(existing);
+    if (existing) {
+      setReady(true);
+    } else {
+      void refreshAccessToken().finally(() => {
+        if (!active) return;
+        setToken(getAccessToken());
+        setReady(true);
+      });
+    }
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   const auth = useMemo<AuthContextValue>(
     () => ({
       token,
       ready,
-      logout: () => setAccessToken(null),
+      logout: async () => {
+        try {
+          await fetch('/api/session', { method: 'DELETE', credentials: 'include' });
+        } catch {
+          // Clearing the local access token still ends the browser session.
+        }
+        setAccessToken(null);
+        queryClient.clear();
+      },
     }),
-    [token, ready],
+    [token, ready, queryClient],
   );
 
   return (

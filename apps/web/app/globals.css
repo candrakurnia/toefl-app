@@ -6,10 +6,11 @@
   --color-canvas: #f6f3fa;
   --color-ink: #1c1428;
   --color-card: #ffffff;
-  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --font-sans: var(--font-outfit), 'Segoe UI', system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), 'Iowan Old Style', Palatino, Georgia, serif;
   --radius-card: 16px;
   --radius-control: 14px;
+  --shadow-card: 0 18px 40px -28px rgba(28, 20, 40, 0.55);
 }
 
 html {
@@ -20,6 +21,12 @@ html {
 body {
   min-height: 100vh;
   font-family: var(--font-sans);
+}
+
+.auth-backdrop {
+  background:
+    radial-gradient(900px 420px at 50% -10%, rgba(123, 92, 255, 0.2), transparent 62%),
+    var(--color-canvas);
 }
 
 h1,
