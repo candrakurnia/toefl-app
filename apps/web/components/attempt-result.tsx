@@ -1,9 +1,16 @@
 import Link from 'next/link';
 import { AttemptDetail, ScoredAnswer, SectionScore } from '@toefl/shared';
-import { formatDateTime, formatQuestionType, formatScoringStatus } from '../lib/format';
+import {
+  formatDateTime,
+  formatOverall,
+  formatQuestionType,
+  formatScoringStatus,
+  formatViolations,
+} from '../lib/format';
 
 export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
   const pending = attempt.scoringStatus === 'pending';
+  const practice = attempt.answers.some((answer) => answer.stub);
   return (
     <div className="mx-auto max-w-3xl">
       <p className="text-xs tracking-[0.16em] text-ink/50 uppercase">Result</p>
@@ -12,13 +19,23 @@ export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
         Submitted {formatDateTime(attempt.submittedAt)}
         {attempt.forced ? ' · timer ended the attempt' : ''}
       </p>
-      <p className="mt-4">
+      <p className="mt-4 flex flex-wrap items-center gap-3">
         <ScorePill status={attempt.scoringStatus} />
+        <span className="text-sm text-ink/70">
+          {formatOverall(attempt.overallScore, attempt.overallMaxScore)}
+        </span>
       </p>
+      <p className="mt-3 text-sm text-ink/70">{formatViolations(attempt.violations)}</p>
       {pending ? (
         <p className="mt-3 text-sm leading-6 text-ink/70">
           Essay and speaking items stay on Pending AI scoring until a grade is stored. This page
           refreshes while that is open.
+        </p>
+      ) : null}
+      {practice ? (
+        <p className="mt-3 text-sm leading-6 text-ink/70">
+          Essay and speaking points are practice scores from a deterministic stand-in. A model grade
+          replaces them later.
         </p>
       ) : null}
 
@@ -85,7 +102,8 @@ function outcomeLabel(answer: ScoredAnswer) {
   if (answer.scoreStatus === 'pending') return 'Pending AI scoring';
   if (answer.type === 'essay' || answer.type === 'speaking') {
     if (answer.score === null) return answer.stub ? 'Scored · placeholder' : 'Scored';
-    return `${answer.score}`;
+    if (answer.stub) return `${answer.score} / ${answer.maxScore} · practice score`;
+    return `${answer.score} / ${answer.maxScore}`;
   }
   if (answer.correct === true) return 'Correct';
   if (answer.correct === false) return 'Incorrect';

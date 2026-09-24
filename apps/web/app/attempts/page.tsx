@@ -9,7 +9,7 @@ import { ScorePill } from '../../components/attempt-result';
 import { Shell } from '../../components/shell';
 import { useAuth } from '../../components/providers';
 import { api } from '../../lib/api';
-import { formatDateTime } from '../../lib/format';
+import { formatDateTime, formatOverall, formatViolations } from '../../lib/format';
 
 export default function AttemptsPage() {
   const { token, ready } = useAuth();
@@ -23,6 +23,8 @@ export default function AttemptsPage() {
     queryKey: ['attempts'],
     queryFn: () => api<AttemptSummary[]>('/attempts'),
     enabled: ready && Boolean(token),
+    refetchInterval: (query) =>
+      query.state.data?.some((attempt) => attempt.scoringStatus === 'pending') ? 3000 : false,
   });
 
   return (
@@ -68,7 +70,10 @@ export default function AttemptsPage() {
               <p className="mt-2 text-sm text-ink/65">
                 {formatDateTime(attempt.submittedAt)}
                 {attempt.forced ? ' · timer ended the attempt' : ''}
+                {' · '}
+                {formatOverall(attempt.overallScore, attempt.overallMaxScore)}
               </p>
+              <p className="mt-1 text-sm text-ink/55">{formatViolations(attempt.violations)}</p>
             </div>
             <Link
               href={`/attempts/${attempt.id}`}

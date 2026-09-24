@@ -21,7 +21,13 @@ export function parseChoices(value: unknown): Choice[] | undefined {
 
 export function parseAnswerPayload(value: unknown): AnswerPayload | null {
   if (!value || typeof value !== 'object') return null;
-  const record = value as { kind?: unknown; choiceId?: unknown; text?: unknown; mediaId?: unknown };
+  const record = value as {
+    kind?: unknown;
+    choiceId?: unknown;
+    text?: unknown;
+    mediaId?: unknown;
+    url?: unknown;
+  };
   if (record.kind === 'choice' && typeof record.choiceId === 'string') {
     return { kind: 'choice', choiceId: record.choiceId };
   }
@@ -29,7 +35,9 @@ export function parseAnswerPayload(value: unknown): AnswerPayload | null {
     return { kind: 'essay', text: record.text };
   }
   if (record.kind === 'speaking' && typeof record.mediaId === 'string') {
-    return { kind: 'speaking', mediaId: record.mediaId };
+    const payload: AnswerPayload = { kind: 'speaking', mediaId: record.mediaId };
+    if (typeof record.url === 'string' && record.url.length > 0) payload.url = record.url;
+    return payload;
   }
   return null;
 }

@@ -1,7 +1,9 @@
 import 'dotenv/config';
 import 'reflect-metadata';
+import path from 'path';
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
@@ -18,12 +20,13 @@ function assertEnv() {
 
 async function bootstrap() {
   assertEnv();
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.use(cookieParser());
   app.enableCors({
     origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
     credentials: true,
   });
+  app.useStaticAssets(path.join(__dirname, '..', 'public'));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
