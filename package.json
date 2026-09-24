@@ -1,0 +1,31 @@
+{
+  "name": "toefl-app",
+  "private": true,
+  "packageManager": "pnpm@10.33.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @toefl/api --filter @toefl/web dev",
+    "build": "pnpm --filter @toefl/shared build && pnpm --filter @toefl/api build && pnpm --filter @toefl/web build",
+    "typecheck": "pnpm --filter @toefl/shared build && pnpm --filter @toefl/api typecheck && pnpm --filter @toefl/web typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "eslint": "^9.36.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild"
+    ]
+  }
+}

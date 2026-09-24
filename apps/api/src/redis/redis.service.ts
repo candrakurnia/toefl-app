@@ -1,0 +1,71 @@
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import Redis from 'ioredis';
+
+@Injectable()
+export class RedisService implements OnModuleDestroy {
+  private readonly logger = new Logger(RedisService.name);
+  readonly client: Redis;
+
+  constructor() {
+    this.client = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
+      lazyConnect: true,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+      connectTimeout: 2000,
+      retryStrategy: (times) => (times > 5 ? null : Math.min(times * 200, 2000)),
+    });
+    this.client.on('error', (error: Error) => {
+      this.logger.warn(`Redis error: ${error.message}`);
+    });
+  }
+
+  async ping(): Promise<boolean> {
+    try {
+      if (this.client.status === 'wait' || this.client.status === 'end') {
+        await this.client.connect();
+      }
+      const reply = await this.client.ping();
+      return reply === 'PONG';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Redis unavailable: ${message}`);
+      return false;
+    }
+  }
+
+  async lpush(key: string, value: string): Promise<boolean> {
+    try {
+      await this.client.lpush(key, value);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Redis LPUSH failed: ${message}`);
+      return false;
+    }
+  }
+
+  async lpop(key: string): Promise<string | null> {
+    try {
+      return await this.client.lpop(key);
+    } catch {
+      return null;
+    }
+  }
+
+  async setex(key: string, ttlSec: number, value: string): Promise<void> {
+    try {
+      await this.client.set(key, value, 'EX', ttlSec);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Redis SET failed: ${message}`);
+    }
+  }
+
+  async onModuleDestroy() {
+    try {
+      await this.client.quit();
+    } catch {
+      this.client.disconnect();
+    }
+  }
+}

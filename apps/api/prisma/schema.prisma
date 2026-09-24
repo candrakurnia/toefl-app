@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String
+  createdAt     DateTime       @default(now())
+  refreshTokens RefreshToken[]
+  sessions      Session[]
+  attempts      Attempt[]
+  media         MediaAsset[]
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Exam {
+  id              String    @id @default(cuid())
+  title           String
+  /// Overall window in seconds. The seeded exam uses 86400 (24 hours).
+  durationOverall Int
+  rules           String[]
+  createdAt       DateTime  @default(now())
+  sections        Section[]
+  sessions        Session[]
+  attempts        Attempt[]
+}
+
+model Section {
+  id          String     @id @default(cuid())
+  examId      String
+  exam        Exam       @relation(fields: [examId], references: [id], onDelete: Cascade)
+  name        String
+  durationSec Int
+  order       Int
+  questions   Question[]
+
+  @@unique([examId, order])
+  @@index([examId])
+}
+
+model Question {
+  id              String  @id @default(cuid())
+  sectionId       String
+  section         Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  type            String
+  prompt          String
+  order           Int
+  choices         Json?
+  correctChoiceId String?
+  audioUrl        String?
+  maxScore        Int     @default(1)
+
+  @@unique([sectionId, order])
+  @@index([sectionId])
+}
+
+/// One active row per user and exam is enforced by a partial unique index in SQL.
+model Session {
+  id               String      @id @default(cuid())
+  userId           String
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  examId           String
+  exam             Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  status           String
+  startedAt        DateTime    @default(now())
+  overallEndsAt    DateTime
+  sectionEndsAt    DateTime
+  currentSectionId String
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  answers          Answer[]
+  violations       Violation[]
+  attempt          Attempt?
+
+  @@index([userId, examId])
+}
+
+model Answer {
+  id         String   @id @default(cuid())
+  sessionId  String
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  questionId String
+  payload    Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([sessionId, questionId])
+}
+
+model Violation {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type      String
+  at        DateTime
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+}
+
+model Attempt {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId   String   @unique
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  examId      String
+  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  submittedAt DateTime @default(now())
+  forced      Boolean  @default(false)
+  result      Json
+
+  @@index([userId])
+}
+
+model MediaAsset {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  filename   String
+  mimeType   String
+  size       Int
+  storedPath String
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
