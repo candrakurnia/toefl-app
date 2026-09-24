@@ -10,6 +10,7 @@ import {
   ExamDetail,
   HeartbeatRequest,
   HeartbeatResponse,
+  SectionNextRequest,
   SectionNextResponse,
   SectionQuestions,
   SessionState,
@@ -266,10 +267,13 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
   }
   heartbeatRef.current = postHeartbeat;
 
-  async function advanceSection() {
+  async function advanceSection(fromSectionId?: string | null) {
     await flushRef.current();
+    const body: SectionNextRequest = {};
+    if (fromSectionId) body.fromSectionId = fromSectionId;
     const result = await api<SectionNextResponse>(`/sessions/${sessionId}/sections/next`, {
       method: 'POST',
+      body: JSON.stringify(body),
     });
     applySession(result.session);
     if (result.submitted || result.session.status !== 'active') {
@@ -302,7 +306,7 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
       if (beat.currentSectionId !== current.currentSectionId) return;
       if (sectionOver) {
         setDeadlineNote('Section time is up. Moving to the next section…');
-        await advanceSection();
+        await advanceSection(current.currentSectionId);
       }
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'Could not sync the timer');
@@ -464,7 +468,7 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
     setAdvancing(true);
     setBanner(null);
     try {
-      await advanceSection();
+      await advanceSection(clockRef.current?.currentSectionId);
     } catch (error) {
       setBanner(error instanceof ApiError ? error.message : 'Could not open the next section');
     } finally {
