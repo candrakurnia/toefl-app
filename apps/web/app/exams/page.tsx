@@ -26,7 +26,13 @@ export default function ExamsPage() {
   });
 
   return (
-    <Shell>
+    <Shell
+      action={
+        <Link href="/attempts" className="text-sm text-ink/70">
+          History
+        </Link>
+      }
+    >
       <div className="max-w-3xl">
         <p className="text-xs tracking-[0.16em] text-ink/50 uppercase">Exams</p>
         <h1 className="mt-2 font-serif text-4xl">Choose a practice test</h1>

@@ -3,11 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { ExamDetail, SessionState } from '@toefl/shared';
 import { Shell } from '../../../components/shell';
 import { useAuth } from '../../../components/providers';
-import { ApiError, api } from '../../../lib/api';
+import { ApiError, api, sessionIdFromError } from '../../../lib/api';
 import { formatDuration, formatQuestionType } from '../../../lib/format';
 
 export default function ExamDetailPage() {
@@ -16,8 +16,6 @@ export default function ExamDetailPage() {
   const { token, ready } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [started, setStarted] = useState<SessionState | null>(null);
-
   useEffect(() => {
     if (ready && !token) router.replace('/login');
   }, [ready, token, router]);
@@ -31,8 +29,12 @@ export default function ExamDetailPage() {
   const start = useMutation({
     mutationFn: () => api<SessionState>(`/exams/${examId}/sessions`, { method: 'POST' }),
     onSuccess: (session) => {
-      setStarted(session);
       void queryClient.invalidateQueries({ queryKey: ['exams'] });
+      router.push(`/sessions/${session.id}`);
+    },
+    onError: (error) => {
+      const existing = sessionIdFromError(error);
+      if (existing) router.push(`/sessions/${existing}`);
     },
   });
 
@@ -101,43 +103,27 @@ export default function ExamDetailPage() {
               </ul>
             </section>
             <section className="rounded-card bg-primary p-5 text-white">
-              <h2 className="font-serif text-xl">Start</h2>
+              <h2 className="font-serif text-xl">Mulai</h2>
               <p className="mt-2 text-sm leading-6 text-white/85">
-                Starting opens the only active session for this exam and begins both timers.
+                Mulai opens the only active session for this exam and begins both timers.
               </p>
               <button
                 type="button"
                 disabled={start.isPending}
-                onClick={() => start.mutate()}
+                onClick={() => {
+                  void document.documentElement.requestFullscreen?.().catch(() => undefined);
+                  start.mutate();
+                }}
                 className="mt-4 w-full rounded-control bg-white px-4 py-2.5 text-sm font-medium text-ink disabled:opacity-60"
               >
-                {start.isPending ? 'Starting…' : 'Start exam'}
+                {start.isPending ? 'Starting…' : 'Mulai'}
               </button>
-              {start.isError ? (
+              {start.isError && !sessionIdFromError(start.error) ? (
                 <p className="mt-3 text-sm text-white">
                   {start.error instanceof ApiError ? start.error.message : 'Could not start'}
                 </p>
               ) : null}
             </section>
-            {started ? (
-              <section className="rounded-card border border-ink/10 bg-card p-5 text-sm">
-                <h2 className="font-serif text-xl">Session started</h2>
-                <dl className="mt-3 space-y-2 text-ink/75">
-                  <div>
-                    <dt className="text-xs tracking-wide text-ink/50 uppercase">Session</dt>
-                    <dd className="break-all">{started.id}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs tracking-wide text-ink/50 uppercase">Section ends</dt>
-                    <dd>{new Date(started.sectionEndsAt).toLocaleString()}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs tracking-wide text-ink/50 uppercase">Overall ends</dt>
-                    <dd>{new Date(started.overallEndsAt).toLocaleString()}</dd>
-                  </div>
-                </dl>
-              </section>
-            ) : null}
           </aside>
         </div>
       ) : null}
