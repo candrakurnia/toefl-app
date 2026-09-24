@@ -26,7 +26,6 @@ export class AttemptsService {
       where: { userId },
       include: ATTEMPT_INCLUDE,
       orderBy: { submittedAt: 'desc' },
-      take: 100,
     });
     return attempts.map((attempt) => this.toDetail(attempt));
   }
@@ -72,10 +71,7 @@ export class AttemptsService {
     }
     const answers = attempt.result.answers.map((answer) => withMaxScore(answer));
     const sectionScores = normalizeSections(attempt.result.sectionScores, answers);
-    const scoringStatus: ScoreStatus = answers.some(
-      (answer) =>
-        answer.scoreStatus === 'pending' || (answer.stub === true && answer.score === null),
-    )
+    const scoringStatus: ScoreStatus = sectionScores.some((section) => section.score === null)
       ? 'pending'
       : 'scored';
     return {

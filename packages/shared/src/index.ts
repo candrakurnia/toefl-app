@@ -203,9 +203,12 @@ export interface AttemptSummary {
   sessionId: string;
   submittedAt: string;
   forced: boolean;
-  /** `pending` while any essay or speaking item is still `pending`. */
+  /**
+   * Pending badge. `pending` while any section score is still null, otherwise `scored`.
+   * Clients can poll `GET /attempts/:id` until this flips.
+   */
   scoringStatus: ScoreStatus;
-  /** Null until every section has a numeric score. */
+  /** Total score. Null while `scoringStatus` is `pending`. */
   overallScore: number | null;
   overallMaxScore: number;
   sectionScores: SectionScore[];

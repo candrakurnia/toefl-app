@@ -135,7 +135,7 @@ export class SessionsService {
 
   async autosave(userId: string, sessionId: string, questionId: string, payload: unknown) {
     const session = await this.enforce(await this.loadOwned(userId, sessionId));
-    this.assertActive(session);
+    this.assertAttemptWritable(session);
     const question = await this.prisma.question.findFirst({
       where: { id: questionId, section: { examId: session.examId } },
     });
@@ -152,15 +152,23 @@ export class SessionsService {
       }
       stored = { kind: 'speaking', mediaId: media.id, url: mediaPlaybackPath(media.id) };
     }
-    const saved = await this.prisma.answer.upsert({
-      where: { sessionId_questionId: { sessionId: session.id, questionId } },
-      create: {
-        sessionId: session.id,
-        questionId,
-        payload: stored as unknown as Prisma.InputJsonValue,
-      },
-      update: { payload: stored as unknown as Prisma.InputJsonValue },
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const writable = await tx.session.findFirst({
+        where: { id: session.id, userId, status: 'active' },
+        select: { id: true },
+      });
+      if (!writable) return null;
+      return tx.answer.upsert({
+        where: { sessionId_questionId: { sessionId: session.id, questionId } },
+        create: {
+          sessionId: session.id,
+          questionId,
+          payload: stored as unknown as Prisma.InputJsonValue,
+        },
+        update: { payload: stored as unknown as Prisma.InputJsonValue },
+      });
     });
+    if (!saved) throw new ConflictException('Attempt is readonly');
     return {
       questionId: saved.questionId,
       payload: stored,
@@ -471,6 +479,13 @@ export class SessionsService {
   private assertActive(session: Session) {
     if (session.status !== 'active') {
       throw new ConflictException('Session is no longer active');
+    }
+  }
+
+  /** Submitted and expired sessions keep the answers that were snapshotted onto the attempt. */
+  private assertAttemptWritable(session: Session) {
+    if (session.status !== 'active') {
+      throw new ConflictException('Attempt is readonly');
     }
   }
 

@@ -21,7 +21,7 @@
 
 - `GET /sessions/:id` → state + `serverNow`, `overallEndsAt`, `sectionEndsAt`, `currentSectionId`, answers snapshot, `violations[]`
 - `GET /sessions/:id/questions?sectionId=` → questions for section (MC / essay / listening / speaking payloads; no correct answers until submit where applicable)
-- `PATCH /sessions/:id/answers` autosave `{ questionId, payload }`
+- `PATCH /sessions/:id/answers` autosave `{ questionId, payload }`. After submit, `409` `Attempt is readonly` and the answer is not written
 - `POST /sessions/:id/sections/next` — advance to the next section. Optional `{ fromSectionId }`. If that section is no longer current, deadlines are synced and the server does not advance again. When `sectionEndsAt` has passed, the server auto-advances (or force-submits on the last section) on this route, on `GET /sessions/:id`, on heartbeat, and on a background sweep
 - `POST /sessions/:id/heartbeat` sync + optional visibility/fullscreen flags. Flags do not pause either timer
 - `POST /sessions/:id/violations` `{ type: fullscreen_exit|tab_blur, at }` — log only; does not pause timers or submit
@@ -32,16 +32,26 @@
 - Dual: section + overall (overall = start + 24h from wireframe)
 - Leaving fullscreen does NOT pause timers; warning + violation flag only (MVP)
 
-## History & media
+## History & results (checkpoint 3)
 
-`GET /attempts` and `GET /attempts/:id` both return the attempt detail (`GET /attempts` is an array, newest first, max 100). Each object includes:
+`GET /attempts` is the history list: every attempt for the signed-in user, newest `submittedAt` first. A user who has never submitted gets `[]`.
 
-- `examTitle`, `submittedAt`, `forced`
-- `scoringStatus`: `pending` while any essay or speaking answer is still `pending`, otherwise `scored`
-- `sectionScores[]`: `{ sectionId, name, score, maxScore }`. `score` is a number for sections whose questions are all scored, and null while that section still has a pending item or a null score
-- `overallScore` / `overallMaxScore`: `overallScore` is the sum of section scores, or null until every section has a number
-- `answers[]`: one row per question. Multiple choice and listening are `scored` at submit (`correct`, `score`, `maxScore`). Essay and speaking start as `pending` with `score: null`, then become `scored`
-- `violations`: `{ total, fullscreenExit, tabBlur }` counted from the session. Logging a violation still does not pause timers or submit
+`GET /attempts/:id` is one attempt. Clients poll it while `scoringStatus` is `pending`. There is no write route on `/attempts`.
+
+Both payloads include:
+
+- `submittedAt` (date), `examId`, `examTitle` (exam)
+- `overallScore` / `overallMaxScore` (total). `overallScore` is null while any section is still unscored
+- `scoringStatus`: `pending` while any `sectionScores[].score` is null, otherwise `scored`. `pending` is the Pending badge
+- `sectionScores[]`: `{ sectionId, name, score, maxScore }`. A number is present as soon as that section is fully scored. Null means that section is still unscored
+- `answers[]`: per question, including `type`, `scoreStatus`, `score`, `maxScore`. Multiple choice and listening are `scored` at submit. Essay and speaking are `pending` with `score: null`, then `scored` with a number. This is the section/type breakdown. Speaking `mediaId` / `url` may be present; replaying the recording is not required
+- `violations`: `{ total, fullscreenExit, tabBlur }`. A count above zero is that flag. `total: 0` means no flags. Counts come from violations logged before submit
+
+`id` on a list row is the detail link (`GET /attempts/:id`).
+
+After submit or force-submit the attempt is readonly. `PATCH /sessions/:id/answers` returns `409` with message `Attempt is readonly` and does not write the answer. The check is repeated inside the write, so a save that races the submit cannot change the snapshotted answers.
+
+## Media
 
 `POST /media/upload` accepts multipart field `file` (audio only: webm, mp3, wav, m4a, ogg, aac; 10MB) and returns `{ mediaId, url, key }`. `url` is `/media/:mediaId`. `key` is `speaking/<mediaId>.<ext>`. `GET /media/:id` streams the bytes for the owner. Saving a speaking answer (`{ kind: "speaking", mediaId }`) checks that this user uploaded that id and stores `{ kind: "speaking", mediaId, url }`.
 
