@@ -2,31 +2,46 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useState } from 'react';
-import { AuthTokens } from '@toefl/shared';
+import { FormEvent, useEffect, useState } from 'react';
 import { AuthScreen, Field } from '../../components/auth-screen';
-import { ApiError, api, setAccessToken } from '../../lib/api';
+import { useAuth } from '../../components/providers';
+import { ApiError } from '../../lib/api';
+import { loginAccount } from '../../lib/client';
+import { safeNextPath } from '../../lib/navigation';
+import { hasCredentialErrors, validateCredentials } from '../../lib/validation';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { token, ready } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [nextPath, setNextPath] = useState('/exams');
+
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get('next');
+    setNextPath(safeNextPath(param));
+  }, []);
+
+  useEffect(() => {
+    if (ready && token) router.replace(nextPath);
+  }, [ready, token, nextPath, router]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
+    const nextErrors = validateCredentials(email, password);
+    setErrors(nextErrors);
+    setFormError(null);
+    if (hasCredentialErrors(nextErrors)) return;
+
     setPending(true);
-    setError(null);
     try {
-      const tokens = await api<AuthTokens>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
-      setAccessToken(tokens.accessToken);
-      router.push('/exams');
+      await loginAccount({ email: email.trim().toLowerCase(), password });
+      router.push(nextPath);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not sign in');
+      setFormError(err instanceof ApiError ? err.message : 'Could not sign in');
     } finally {
       setPending(false);
     }
@@ -35,7 +50,7 @@ export default function LoginPage() {
   return (
     <AuthScreen
       title="Sign in"
-      subtitle="Continue a practice test or review the exam you have not started."
+      subtitle="Continue a practice test, or open one you have not started."
       footer={
         <>
           New here?{' '}
@@ -45,20 +60,40 @@ export default function LoginPage() {
         </>
       }
     >
-      <form onSubmit={onSubmit} className="space-y-4">
-        <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" />
+      <form onSubmit={onSubmit} noValidate className="space-y-4">
+        <Field
+          label="Email"
+          name="email"
+          type="email"
+          value={email}
+          autoComplete="email"
+          error={errors.email}
+          onChange={(value) => {
+            setEmail(value);
+            setErrors((current) => ({ ...current, email: undefined }));
+          }}
+        />
         <Field
           label="Password"
+          name="password"
           type="password"
           value={password}
-          onChange={setPassword}
           autoComplete="current-password"
+          error={errors.password}
+          onChange={(value) => {
+            setPassword(value);
+            setErrors((current) => ({ ...current, password: undefined }));
+          }}
         />
-        {error ? <p className="text-sm text-red-700">{error}</p> : null}
+        {formError ? (
+          <p role="alert" className="rounded-control bg-red-50 px-3 py-2 text-sm text-red-700">
+            {formError}
+          </p>
+        ) : null}
         <button
           type="submit"
           disabled={pending}
-          className="w-full rounded-control bg-primary px-4 py-3 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"
+          className="w-full rounded-control bg-primary px-4 py-3 text-sm font-medium text-white shadow-card hover:bg-primary-hover disabled:opacity-60"
         >
           {pending ? 'Signing in…' : 'Sign in'}
         </button>
