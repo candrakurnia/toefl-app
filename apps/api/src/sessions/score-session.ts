@@ -27,7 +27,8 @@ export function buildAttemptResult(
   const scoredAnswers: ScoredAnswer[] = [];
 
   for (const section of sections) {
-    for (const question of section.questions) {
+    const questions = [...section.questions].sort((a, b) => a.order - b.order);
+    for (const question of questions) {
       const type = asQuestionType(question.type);
       const saved = byQuestion.get(question.id);
       const payload = saved ? parseAnswerPayload(saved.payload) : null;

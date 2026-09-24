@@ -1,6 +1,12 @@
 import { IsBoolean, IsIn, IsISO8601, IsObject, IsOptional, IsString } from 'class-validator';
 import { VIOLATION_TYPES, ViolationType } from '@toefl/shared';
 
+export class SectionNextDto {
+  @IsOptional()
+  @IsString()
+  fromSectionId?: string;
+}
+
 export class AutosaveDto {
   @IsString()
   questionId!: string;
