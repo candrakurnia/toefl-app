@@ -68,7 +68,12 @@ export interface ExamDetail {
 export type AnswerPayload =
   | { kind: 'choice'; choiceId: string }
   | { kind: 'essay'; text: string }
-  | { kind: 'speaking'; mediaId: string };
+  | { kind: 'speaking'; mediaId: string; url?: string };
+
+/** Authenticated playback path for an uploaded speaking recording. */
+export function mediaPlaybackPath(mediaId: string): string {
+  return `/media/${encodeURIComponent(mediaId)}`;
+}
 
 export interface AnswerSnapshot {
   questionId: string;
@@ -174,9 +179,21 @@ export interface ScoredAnswer {
   payload: AnswerPayload | null;
   correct?: boolean;
   scoreStatus: ScoreStatus;
-  /** Null while a model grade does not exist. Stub scoring leaves this null. */
+  /**
+   * Points awarded. Null while `scoreStatus` is `pending`.
+   * The MVP worker fills essay and speaking with a deterministic practice score and sets `stub`.
+   * A later model scorer should write its own number and omit `stub` (or set it false).
+   */
   score: number | null;
+  maxScore: number;
+  /** True when the grade came from the deterministic practice scorer, not a model. */
   stub?: boolean;
+}
+
+export interface ViolationsSummary {
+  total: number;
+  fullscreenExit: number;
+  tabBlur: number;
 }
 
 export interface AttemptSummary {
@@ -186,17 +203,35 @@ export interface AttemptSummary {
   sessionId: string;
   submittedAt: string;
   forced: boolean;
+  /** `pending` while any essay or speaking item is still `pending`. */
   scoringStatus: ScoreStatus;
+  /** Null until every section has a numeric score. */
+  overallScore: number | null;
+  overallMaxScore: number;
+  sectionScores: SectionScore[];
+  violations: ViolationsSummary;
 }
 
 export interface AttemptDetail extends AttemptSummary {
-  sectionScores: SectionScore[];
   answers: ScoredAnswer[];
+}
+
+export function overallMaxScoreOf(sectionScores: SectionScore[]): number {
+  return sectionScores.reduce((sum, section) => sum + section.maxScore, 0);
+}
+
+/** Null while any section is still waiting on a numeric score. */
+export function overallScoreOf(sectionScores: SectionScore[]): number | null {
+  if (sectionScores.some((section) => section.score === null)) return null;
+  return sectionScores.reduce((sum, section) => sum + (section.score ?? 0), 0);
 }
 
 export interface MediaUploadResponse {
   mediaId: string;
+  /** Authenticated playback path (`/media/:mediaId`). */
   url: string;
+  /** Object key (`speaking/<mediaId>.<ext>`) on local disk or in the bucket. */
+  key: string;
 }
 
 export function isAttemptResult(value: unknown): value is {

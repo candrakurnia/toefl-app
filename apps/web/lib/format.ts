@@ -52,6 +52,30 @@ export function formatCountdown(ms: number) {
   return `${mm}:${ss}`;
 }
 
+export function formatOverall(overallScore: number | null, overallMaxScore: number) {
+  if (overallScore === null) return `Overall pending / ${overallMaxScore}`;
+  return `Overall ${overallScore} / ${overallMaxScore}`;
+}
+
+export function formatViolations(violations: {
+  total: number;
+  fullscreenExit: number;
+  tabBlur: number;
+}) {
+  if (violations.total === 0) return 'Violations recorded: 0';
+  const parts: string[] = [];
+  if (violations.fullscreenExit > 0) {
+    const label = violations.fullscreenExit === 1 ? 'exit' : 'exits';
+    parts.push(`${violations.fullscreenExit} fullscreen ${label}`);
+  }
+  if (violations.tabBlur > 0) {
+    const label = violations.tabBlur === 1 ? 'blur' : 'blurs';
+    parts.push(`${violations.tabBlur} tab ${label}`);
+  }
+  const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+  return `Violations recorded: ${violations.total}${detail}`;
+}
+
 export function formatDateTime(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;

@@ -8,6 +8,7 @@ import {
 import { Prisma, Session } from '@prisma/client';
 import {
   HeartbeatResponse,
+  mediaPlaybackPath,
   PublicQuestion,
   QuestionType,
   SectionNextResponse,
@@ -141,24 +142,28 @@ export class SessionsService {
     if (!question) throw new NotFoundException('Question not found');
     const type = asQuestionType(question.type);
     const parsed = assertPayloadForQuestion(type, payload, parseChoices(question.choices));
+    let stored = parsed;
     if (parsed.kind === 'speaking') {
       const media = await this.prisma.mediaAsset.findFirst({
         where: { id: parsed.mediaId, userId },
       });
-      if (!media) throw new BadRequestException('mediaId was not uploaded by this user');
+      if (!media || !media.storedPath || media.storedPath === 'pending') {
+        throw new BadRequestException('mediaId was not uploaded by this user');
+      }
+      stored = { kind: 'speaking', mediaId: media.id, url: mediaPlaybackPath(media.id) };
     }
     const saved = await this.prisma.answer.upsert({
       where: { sessionId_questionId: { sessionId: session.id, questionId } },
       create: {
         sessionId: session.id,
         questionId,
-        payload: parsed as unknown as Prisma.InputJsonValue,
+        payload: stored as unknown as Prisma.InputJsonValue,
       },
-      update: { payload: parsed as unknown as Prisma.InputJsonValue },
+      update: { payload: stored as unknown as Prisma.InputJsonValue },
     });
     return {
       questionId: saved.questionId,
-      payload: parsed,
+      payload: stored,
       updatedAt: saved.updatedAt.toISOString(),
     };
   }
