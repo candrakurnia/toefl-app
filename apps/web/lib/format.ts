@@ -58,27 +58,15 @@ export function formatDateTime(iso: string) {
   return date.toLocaleString();
 }
 
-/** History status. Pending work is shown as the in-progress scoring state. */
+/** Pending or Scored. History uses Pending as the badge while a section is unscored. */
 export function formatScoringStatus(status: string) {
-  switch (status) {
-    case 'pending':
-      return 'AI scoring…';
-    case 'scored':
-      return 'Scored';
-    default:
-      return status;
-  }
-}
-
-/** Per-section and per-question state: Pending or Scored. */
-export function formatScoreState(status: string) {
   switch (status) {
     case 'pending':
       return 'Pending';
     case 'scored':
       return 'Scored';
     default:
-      return formatScoringStatus(status);
+      return status;
   }
 }
 
@@ -88,7 +76,7 @@ export function formatPoints(earned: number, max: number) {
 }
 
 export function formatAttemptScore(score: number | null, maxScore: number) {
-  if (score === null) return 'Pending';
+  if (score === null) return '—';
   return formatPoints(score, maxScore);
 }
 

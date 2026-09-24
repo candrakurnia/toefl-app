@@ -21,7 +21,6 @@ export class AttemptsService {
       where: { userId },
       include: { exam: true },
       orderBy: { submittedAt: 'desc' },
-      take: 100,
     });
     return attempts.map((attempt) => this.toSummary(attempt));
   }

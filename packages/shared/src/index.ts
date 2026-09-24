@@ -190,11 +190,11 @@ export interface AttemptSummary {
   forced: boolean;
   scoringStatus: ScoreStatus;
   /**
-   * Points that can be shown as a finished total.
-   * Null while any essay or speaking item is still pending.
+   * Known points. Auto-scored items count as soon as the attempt exists.
+   * Null only when there is no numeric total yet (for example, only unscored essay or speaking).
    */
   score: number | null;
-  /** Denominator for {@link score}. Auto-scored maximum while scoring is pending. */
+  /** Denominator for {@link score}. */
   maxScore: number;
 }
 
@@ -243,9 +243,9 @@ export function partialAutoScore(result: {
 }
 
 /**
- * History score. Stays null until essay and speaking leave `pending`.
- * After that, a numeric model grade is included; a stub grade with a null score
- * leaves the total as the auto-scored partial.
+ * History total. `scoringStatus` stays `pending` while any section item is unscored.
+ * `score` is the points already known, including the auto-scored partial before essay
+ * and speaking are graded. A stub grade with a null score does not add model points.
  */
 export function rollupAttemptScore(result: {
   sectionScores: SectionScore[];
@@ -258,7 +258,11 @@ export function rollupAttemptScore(result: {
     : 'scored';
   const partial = partialAutoScore(result);
   if (scoringStatus === 'pending') {
-    return { scoringStatus, score: null, maxScore: partial.max };
+    return {
+      scoringStatus,
+      score: partial.max > 0 ? partial.earned : null,
+      maxScore: partial.max,
+    };
   }
 
   const model = result.answers.filter((answer) => isModelScoredType(answer.type));

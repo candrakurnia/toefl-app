@@ -34,7 +34,7 @@
 
 ## History & media
 
-- `GET /attempts` → `{ id, examId, examTitle, sessionId, submittedAt, forced, scoringStatus: pending|scored, score, maxScore }[]`. `score` is null while essay or speaking is still `pending`; otherwise it is the known total (auto-scored points, plus a numeric essay/speaking grade when one exists).
+- `GET /attempts` → every attempt for the user: `{ id, examId, examTitle, sessionId, submittedAt, forced, scoringStatus: pending|scored, score, maxScore }`. `score` is the known total (auto-scored points immediately, plus a numeric essay/speaking grade when one exists). It is null only when no numeric points exist yet. `scoringStatus` is `pending` while any section item is still unscored.
 - `GET /attempts/:id` → the summary plus `sectionScores`, per-answer `scoreStatus` (`pending`|`scored`), and `violations[]` (`fullscreen_exit`|`tab_blur`) copied from the session.
 - `POST /media/upload` (speaking answers; size limit)
 - AI scoring async: Pending → Scored for essay/speaking. Choice and listening scores are available on submit.

@@ -81,29 +81,29 @@ The refresh token is set as an httpOnly cookie and is also returned in the JSON 
 
 Authenticated routes expect `Authorization: Bearer <accessToken>`.
 
-| Method  | Path                                 | Notes                                                                                         |
-| ------- | ------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `POST`  | `/auth/register`                     | `{ email, password }` → user                                                                  |
-| `POST`  | `/auth/login`                        | `{ accessToken, refreshToken }` and refresh cookie                                            |
-| `POST`  | `/auth/refresh`                      | Cookie or `{ refreshToken }`                                                                  |
-| `GET`   | `/exams`                             | List with `not_started`, `in_progress`, or `completed`                                        |
-| `GET`   | `/exams/:id`                         | Sections, rules, question count                                                               |
-| `POST`  | `/exams/:id/sessions`                | Starts timers. `409` if an active session exists                                              |
-| `GET`   | `/sessions/:id`                      | State, both deadlines, answers, violations                                                    |
-| `GET`   | `/sessions/:id/questions?sectionId=` | Hides correct choices until submit                                                            |
-| `PATCH` | `/sessions/:id/answers`              | `{ questionId, payload }`                                                                     |
-| `POST`  | `/sessions/:id/sections/next`        | Advances. Optional `{ fromSectionId }` does not advance again if that section is already over |
-| `POST`  | `/sessions/:id/heartbeat`            | Syncs clocks. Optional `visibility` and `fullscreen`                                          |
-| `POST`  | `/sessions/:id/violations`           | `{ type: fullscreen_exit \| tab_blur, at }`                                                   |
-| `POST`  | `/sessions/:id/submit`               | Creates an attempt. Deadline paths force-submit                                               |
-| `GET`   | `/attempts`                          | Date, exam title, `score` (null while pending), and `scoringStatus`                           |
-| `GET`   | `/attempts/:id`                      | Section scores, per-question pending/scored, and session violations                           |
-| `POST`  | `/media/upload`                      | Multipart field `file`, audio only, 10MB                                                      |
-| `GET`   | `/media/:id`                         | Owner download for an uploaded file                                                           |
+| Method  | Path                                 | Notes                                                                                              |
+| ------- | ------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `POST`  | `/auth/register`                     | `{ email, password }` → user                                                                       |
+| `POST`  | `/auth/login`                        | `{ accessToken, refreshToken }` and refresh cookie                                                 |
+| `POST`  | `/auth/refresh`                      | Cookie or `{ refreshToken }`                                                                       |
+| `GET`   | `/exams`                             | List with `not_started`, `in_progress`, or `completed`                                             |
+| `GET`   | `/exams/:id`                         | Sections, rules, question count                                                                    |
+| `POST`  | `/exams/:id/sessions`                | Starts timers. `409` if an active session exists                                                   |
+| `GET`   | `/sessions/:id`                      | State, both deadlines, answers, violations                                                         |
+| `GET`   | `/sessions/:id/questions?sectionId=` | Hides correct choices until submit                                                                 |
+| `PATCH` | `/sessions/:id/answers`              | `{ questionId, payload }`                                                                          |
+| `POST`  | `/sessions/:id/sections/next`        | Advances. Optional `{ fromSectionId }` does not advance again if that section is already over      |
+| `POST`  | `/sessions/:id/heartbeat`            | Syncs clocks. Optional `visibility` and `fullscreen`                                               |
+| `POST`  | `/sessions/:id/violations`           | `{ type: fullscreen_exit \| tab_blur, at }`                                                        |
+| `POST`  | `/sessions/:id/submit`               | Creates an attempt. Deadline paths force-submit                                                    |
+| `GET`   | `/attempts`                          | Every attempt: date, exam, known `score`, and `scoringStatus` (`pending` if a section is unscored) |
+| `GET`   | `/attempts/:id`                      | Section scores, per-question pending/scored, and session violations                                |
+| `POST`  | `/media/upload`                      | Multipart field `file`, audio only, 10MB                                                           |
+| `GET`   | `/media/:id`                         | Owner download for an uploaded file                                                                |
 
 Timers are stored on the session as `overallEndsAt` and `sectionEndsAt`. The seeded exam sets the overall window to 24 hours (`durationOverall = 86400`). A section deadline advances to the next section. The overall deadline, or the end of the last section, force-submits the session (`forced: true`, status `expired`). Those deadlines are applied on session reads, heartbeats, `sections/next`, and a sweep that runs about once a second so a closed browser still submits. The next deadline is also written to the Redis sorted set `sessions:due`. If Redis is down, the sweep reads Postgres. `POST /sessions/:id/sections/next` accepts an optional `{ fromSectionId }`; when that section is no longer current, the server does not advance again. Leaving fullscreen or blurring the tab writes a violation and does not move either deadline or submit the exam.
 
-Choice and listening questions are scored when the attempt is created. Essay and speaking answers are stored as `pending`, pushed onto the Redis list `scoring:jobs`, and marked `scored` by an in-process stub worker. If Redis is down, that job stays on an in-memory queue so the status change still happens. Stub grades leave `score` null and set `stub: true`. `GET /attempts` leaves the attempt `score` null until those items leave `pending`. `GET /attempts/:id` also returns the session's fullscreen and tab-blur violations. The result screen polls while scoring is pending.
+Choice and listening questions are scored when the attempt is created. Essay and speaking answers are stored as `pending`, pushed onto the Redis list `scoring:jobs`, and marked `scored` by an in-process stub worker. If Redis is down, that job stays on an in-memory queue so the status change still happens. Stub grades leave `score` null and set `stub: true`. `GET /attempts` includes the known score immediately and sets `scoringStatus` to `pending` while any section item is still unscored. `GET /attempts/:id` adds the section and per-type breakdown plus fullscreen and tab-blur violations. The result screen polls while scoring is pending.
 
 Answer payloads:
 

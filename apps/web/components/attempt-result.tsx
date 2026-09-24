@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import {
   AttemptDetail,
+  QuestionType,
   ScoredAnswer,
   ScoreStatus,
   SectionScore,
@@ -12,7 +13,6 @@ import {
   formatDateTime,
   formatPoints,
   formatQuestionType,
-  formatScoreState,
   formatScoringStatus,
   formatViolation,
 } from '../lib/format';
@@ -49,14 +49,14 @@ export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
         <article className="rounded-card border border-ink/10 bg-card p-5 shadow-sm">
           <p className="text-xs tracking-[0.16em] text-ink/50 uppercase">Essay and speaking</p>
           <p className="mt-2 font-serif text-4xl" aria-live="polite">
-            {modelAnswers.length === 0 ? 'None' : modelPending ? 'AI scoring…' : 'Scored'}
+            {modelAnswers.length === 0 ? 'None' : modelPending ? 'Pending' : 'Scored'}
           </p>
           <p className="mt-2 text-sm leading-6 text-ink/65">
             {modelAnswers.length === 0
               ? 'This exam has no essay or speaking responses.'
               : modelPending
-                ? 'Waiting on AI scoring. This page refreshes until each item is scored.'
-                : 'Every essay and speaking response has a scoring status of Scored.'}
+                ? 'Pending until a grade is stored. This page refreshes, then these items show Scored.'
+                : 'Scored. Essay and speaking grades are final for this attempt.'}
           </p>
         </article>
       </div>
@@ -75,48 +75,71 @@ export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
                   <p className="font-medium">{section.name}</p>
                   <p className="mt-1 text-sm text-ink/65">{sectionScoreLabel(section, answers)}</p>
                 </div>
-                <ScorePill status={status} tone="state" />
+                <ScorePill status={status} />
               </li>
             );
           })}
         </ul>
       </section>
 
-      <ViolationList attempt={attempt} />
+      {attempt.violations.length > 0 ? <ViolationList attempt={attempt} /> : null}
 
       <section className="mt-6 space-y-6">
+        <h2 className="font-serif text-2xl">Breakdown</h2>
         {attempt.sectionScores.map((section) => {
           const answers = attempt.answers.filter(
             (answer) => answer.sectionId === section.sectionId,
           );
+          const groups = groupByType(answers);
           return (
             <div key={section.sectionId}>
               <div className="flex items-center justify-between gap-3">
-                <h2 className="font-serif text-xl">{section.name}</h2>
-                <ScorePill status={sectionStatus(answers)} tone="state" />
+                <h3 className="font-serif text-xl">{section.name}</h3>
+                <ScorePill status={sectionStatus(answers)} />
               </div>
-              <ul className="mt-3 space-y-3">
-                {answers.map((answer, index) => (
-                  <li
-                    key={answer.questionId}
-                    className="rounded-card border border-ink/10 bg-card px-4 py-3 text-sm"
-                  >
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="text-ink/80">
-                        {index + 1}. {formatQuestionType(answer.type)}
-                      </span>
-                      <span
-                        className={
-                          answer.scoreStatus === 'pending' ? 'text-primary' : 'text-ink/70'
-                        }
-                      >
-                        {outcomeLabel(answer)}
-                      </span>
+              <p className="mt-1 text-sm text-ink/65">{sectionScoreLabel(section, answers)}</p>
+              {groups.length === 0 ? (
+                <p className="mt-3 text-sm text-ink/60">No responses saved for this section.</p>
+              ) : (
+                <div className="mt-3 space-y-4">
+                  {groups.map((group) => (
+                    <div key={group.type}>
+                      <div className="flex items-baseline justify-between gap-3 text-sm">
+                        <span className="font-medium">{formatQuestionType(group.type)}</span>
+                        <span
+                          className={
+                            sectionStatus(group.answers) === 'pending'
+                              ? 'text-primary'
+                              : 'text-ink/70'
+                          }
+                        >
+                          {typeScoreLabel(group.answers)}
+                        </span>
+                      </div>
+                      <ul className="mt-2 space-y-2">
+                        {group.answers.map((answer, index) => (
+                          <li
+                            key={answer.questionId}
+                            className="rounded-card border border-ink/10 bg-card px-4 py-3 text-sm"
+                          >
+                            <div className="flex items-baseline justify-between gap-3">
+                              <span className="text-ink/80">{index + 1}.</span>
+                              <span
+                                className={
+                                  answer.scoreStatus === 'pending' ? 'text-primary' : 'text-ink/70'
+                                }
+                              >
+                                {outcomeLabel(answer)}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-ink/60">{preview(answer)}</p>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <p className="mt-2 text-ink/60">{preview(answer)}</p>
-                  </li>
-                ))}
-              </ul>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
@@ -142,10 +165,10 @@ function AiScoringBanner() {
         aria-hidden
       />
       <div>
-        <p className="font-medium text-primary">AI scoring…</p>
+        <p className="font-medium text-primary">Pending</p>
         <p className="mt-1 text-sm leading-6 text-ink/75">
-          Essay and speaking stay Pending until a grade is stored. Multiple choice and listening
-          scores are already final. This page checks again on its own.
+          Essay and speaking are Pending. Multiple choice and listening scores are already shown.
+          This page refreshes until those items are Scored.
         </p>
       </div>
     </div>
@@ -162,41 +185,63 @@ function ViolationList({ attempt }: { attempt: AttemptDetail }) {
     <section className="mt-6 rounded-card border border-ink/10 bg-card p-5 shadow-sm">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="font-serif text-2xl">Violations</h2>
-        <span className="text-sm text-ink/60">
-          {attempt.violations.length === 0 ? 'None' : attempt.violations.length}
-        </span>
+        <span className="text-sm text-ink/60">{attempt.violations.length}</span>
       </div>
       <p className="mt-2 text-sm leading-6 text-ink/65">
         Fullscreen exits and tab switches recorded during this session. The timers did not pause.
       </p>
-      {attempt.violations.length === 0 ? (
-        <p className="mt-4 text-sm text-ink/70">
-          No fullscreen exits or tab switches were recorded.
-        </p>
-      ) : (
-        <>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {Object.entries(counts).map(([type, count]) => (
-              <span key={type} className="rounded-full bg-canvas px-2.5 py-1 text-xs text-ink/80">
-                {formatViolation(type)} · {count}
-              </span>
-            ))}
-          </div>
-          <ul className="mt-4 divide-y divide-ink/10">
-            {attempt.violations.map((violation) => (
-              <li
-                key={violation.id}
-                className="flex items-baseline justify-between gap-3 py-3 text-sm"
-              >
-                <span>{formatViolation(violation.type)}</span>
-                <span className="text-ink/60">{formatDateTime(violation.at)}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {Object.entries(counts).map(([type, count]) => (
+          <span key={type} className="rounded-full bg-canvas px-2.5 py-1 text-xs text-ink/80">
+            {formatViolation(type)} · {count}
+          </span>
+        ))}
+      </div>
+      <ul className="mt-4 divide-y divide-ink/10">
+        {attempt.violations.map((violation) => (
+          <li key={violation.id} className="flex items-baseline justify-between gap-3 py-3 text-sm">
+            <span>{formatViolation(violation.type)}</span>
+            <span className="text-ink/60">{formatDateTime(violation.at)}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
+}
+
+const TYPE_ORDER: QuestionType[] = ['multiple_choice', 'listening', 'speaking', 'essay'];
+
+function groupByType(answers: ScoredAnswer[]) {
+  const groups = new Map<QuestionType, ScoredAnswer[]>();
+  for (const answer of answers) {
+    const list = groups.get(answer.type) ?? [];
+    list.push(answer);
+    groups.set(answer.type, list);
+  }
+  return TYPE_ORDER.flatMap((type) => {
+    const grouped = groups.get(type);
+    return grouped ? [{ type, answers: grouped }] : [];
+  });
+}
+
+function typeScoreLabel(answers: ScoredAnswer[]) {
+  if (answers.some((answer) => answer.scoreStatus === 'pending')) return 'Pending';
+  if (answers.every((answer) => isModelScoredType(answer.type))) {
+    const numeric = answers.filter((answer) => typeof answer.score === 'number');
+    if (
+      numeric.length === answers.length &&
+      numeric.every((answer) => typeof answer.maxScore === 'number')
+    ) {
+      const earned = numeric.reduce((sum, answer) => sum + (answer.score ?? 0), 0);
+      const max = numeric.reduce((sum, answer) => sum + (answer.maxScore ?? 0), 0);
+      return `Scored · ${formatPoints(earned, max)}`;
+    }
+    return 'Scored';
+  }
+  const earned = answers.reduce((sum, answer) => sum + (answer.score ?? 0), 0);
+  const maxKnown = answers.every((answer) => typeof answer.maxScore === 'number');
+  const max = maxKnown ? answers.reduce((sum, answer) => sum + (answer.maxScore ?? 0), 0) : 0;
+  return formatPoints(earned, max);
 }
 
 function sectionStatus(answers: ScoredAnswer[]): ScoreStatus {
@@ -216,10 +261,10 @@ function sectionScoreLabel(section: SectionScore, answers: ScoredAnswer[]) {
       ? section.maxScore
       : 0;
 
-  if (pending && auto.length === 0) return 'AI scoring…';
+  if (pending && auto.length === 0) return 'Pending';
   if (pending) {
     const partial = formatPoints(autoEarned, autoMax);
-    return `${partial} auto-scored · AI scoring…`;
+    return `${partial} auto-scored · Pending`;
   }
   if (model.length > 0 && model.every((answer) => answer.score === null)) {
     if (auto.length === 0) return 'Scored';
@@ -246,7 +291,7 @@ function outcomeLabel(answer: ScoredAnswer) {
         : null;
   if (answer.correct === true) return points ? `Correct · ${points}` : 'Correct';
   if (answer.correct === false) return points ? `Incorrect · ${points}` : 'Incorrect';
-  return formatScoreState(answer.scoreStatus);
+  return formatScoringStatus(answer.scoreStatus);
 }
 
 function preview(answer: ScoredAnswer) {
@@ -261,15 +306,9 @@ function preview(answer: ScoredAnswer) {
   return 'Choice saved';
 }
 
-export function ScorePill({
-  status,
-  tone = 'status',
-}: {
-  status: string;
-  tone?: 'status' | 'state';
-}) {
+export function ScorePill({ status }: { status: string }) {
   const pending = status === 'pending';
-  const label = tone === 'state' ? formatScoreState(status) : formatScoringStatus(status);
+  const label = formatScoringStatus(status);
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
