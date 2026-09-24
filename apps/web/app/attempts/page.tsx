@@ -9,7 +9,7 @@ import { ScorePill } from '../../components/attempt-result';
 import { Shell } from '../../components/shell';
 import { useAuth } from '../../components/providers';
 import { api } from '../../lib/api';
-import { formatAttemptScore, formatDateTime } from '../../lib/format';
+import { formatDateTime, formatOverall } from '../../lib/format';
 
 export default function AttemptsPage() {
   const { token, ready } = useAuth();
@@ -87,7 +87,7 @@ function AttemptRow({ attempt }: { attempt: AttemptSummary }) {
         <div>
           <dt className="text-xs tracking-[0.14em] text-ink/45 uppercase">Total</dt>
           <dd className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink/80">
-            <span>{formatAttemptScore(attempt.score, attempt.maxScore)}</span>
+            <span>{formatOverall(attempt.overallScore, attempt.overallMaxScore)}</span>
             {unscored ? null : <ScorePill status={attempt.scoringStatus} />}
           </dd>
         </div>

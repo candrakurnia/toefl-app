@@ -1,11 +1,6 @@
 import { Answer, Question, Section } from '@prisma/client';
-import {
-  AnswerPayload,
-  AttemptDetail,
-  QuestionType,
-  ScoredAnswer,
-  SectionScore,
-} from '@toefl/shared';
+import { AnswerPayload, AttemptDetail, QuestionType, ScoredAnswer } from '@toefl/shared';
+import { sectionScoresFromAnswers } from '../scoring/stub-score';
 import { parseAnswerPayload } from './answer-payload';
 
 type ExamSection = Section & { questions: Question[] };
@@ -36,19 +31,14 @@ export function buildAttemptResult(
     }
   }
 
-  const sectionScores: SectionScore[] = sections.map((section) => {
-    const sectionAnswers = scoredAnswers.filter((answer) => answer.sectionId === section.id);
-    const maxScore = section.questions.reduce((sum, question) => sum + question.maxScore, 0);
-    const waiting = sectionAnswers.some(
-      (answer) => answer.scoreStatus === 'pending' || answer.score === null,
-    );
-    return {
+  const sectionScores = sectionScoresFromAnswers(
+    sections.map((section) => ({
       sectionId: section.id,
       name: section.name,
-      maxScore,
-      score: waiting ? null : sectionAnswers.reduce((sum, answer) => sum + (answer.score ?? 0), 0),
-    };
-  });
+      maxScore: section.questions.reduce((sum, question) => sum + question.maxScore, 0),
+    })),
+    scoredAnswers,
+  );
 
   return { sectionScores, answers: scoredAnswers };
 }

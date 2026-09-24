@@ -37,6 +37,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async rpush(key: string, value: string): Promise<boolean> {
+    if (!(await this.ping())) return false;
+    try {
+      await this.client.rpush(key, value);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Redis RPUSH failed: ${message}`);
+      return false;
+    }
+  }
+
   async lpush(key: string, value: string): Promise<boolean> {
     if (!(await this.ping())) return false;
     try {

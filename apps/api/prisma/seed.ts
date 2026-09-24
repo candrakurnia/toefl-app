@@ -4,14 +4,40 @@ import { OVERALL_WINDOW_SEC } from '@toefl/shared';
 const prisma = new PrismaClient();
 
 const EXAM_ID = 'exam_practice_1';
+const LISTENING_AUDIO_URL = '/fixtures/listening/q_listen_1.wav';
+const LISTENING_PROMPT =
+  'Listen to the short campus announcement (a sample clip plays with this item). The speaker says the writing center will open on Sunday evenings during the two weeks before final exams and that students should book a 30-minute slot online.\n\nWhat is the announcement mainly about?';
 
 async function main() {
   const existing = await prisma.exam.findUnique({ where: { id: EXAM_ID } });
   if (existing) {
-    console.log(`Exam ${EXAM_ID} already exists; seed skipped.`);
-    return;
+    console.log(`Exam ${EXAM_ID} already exists.`);
+  } else {
+    await createExam();
+    console.log(`Seeded exam ${EXAM_ID}.`);
   }
+  const refreshed = await ensureListeningFixture();
+  if (refreshed) console.log('Updated the listening fixture on q_listen_1.');
+}
 
+async function ensureListeningFixture() {
+  const question = await prisma.question.findUnique({ where: { id: 'q_listen_1' } });
+  if (!question) return false;
+  const prompt = question.prompt.includes('audio placeholder')
+    ? question.prompt.replace(
+        '(audio placeholder for this sample)',
+        '(a sample clip plays with this item)',
+      )
+    : question.prompt;
+  if (question.audioUrl === LISTENING_AUDIO_URL && prompt === question.prompt) return false;
+  await prisma.question.update({
+    where: { id: question.id },
+    data: { audioUrl: LISTENING_AUDIO_URL, prompt },
+  });
+  return true;
+}
+
+async function createExam() {
   await prisma.exam.create({
     data: {
       id: EXAM_ID,
@@ -94,9 +120,8 @@ async function main() {
                   order: 1,
                   maxScore: 1,
                   correctChoiceId: 'q_listen_1_a',
-                  audioUrl: null,
-                  prompt:
-                    'Listen to a short campus announcement (audio placeholder for this sample). The speaker says the writing center will open on Sunday evenings during the two weeks before final exams and that students should book a 30-minute slot online.\n\nWhat is the announcement mainly about?',
+                  audioUrl: LISTENING_AUDIO_URL,
+                  prompt: LISTENING_PROMPT,
                   choices: [
                     {
                       id: 'q_listen_1_a',
@@ -153,8 +178,6 @@ async function main() {
       },
     },
   });
-
-  console.log(`Seeded exam ${EXAM_ID}.`);
 }
 
 main()

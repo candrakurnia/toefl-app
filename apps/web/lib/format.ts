@@ -52,6 +52,14 @@ export function formatCountdown(ms: number) {
   return `${mm}:${ss}`;
 }
 
+/** Known total. Null `overallScore` means a section is still unscored. */
+export function formatOverall(overallScore: number | null, overallMaxScore: number) {
+  if (overallScore === null) {
+    return overallMaxScore > 0 ? `Pending / ${overallMaxScore}` : 'Pending';
+  }
+  return `${overallScore} / ${overallMaxScore}`;
+}
+
 export function formatDateTime(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -73,20 +81,4 @@ export function formatScoringStatus(status: string) {
 export function formatPoints(earned: number, max: number) {
   if (max <= 0) return earned === 0 ? '—' : String(earned);
   return `${earned} / ${max}`;
-}
-
-export function formatAttemptScore(score: number | null, maxScore: number) {
-  if (score === null) return '—';
-  return formatPoints(score, maxScore);
-}
-
-export function formatViolation(type: string) {
-  switch (type) {
-    case 'fullscreen_exit':
-      return 'Fullscreen exit';
-    case 'tab_blur':
-      return 'Tab blur';
-    default:
-      return type;
-  }
 }

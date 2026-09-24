@@ -68,7 +68,12 @@ export interface ExamDetail {
 export type AnswerPayload =
   | { kind: 'choice'; choiceId: string }
   | { kind: 'essay'; text: string }
-  | { kind: 'speaking'; mediaId: string };
+  | { kind: 'speaking'; mediaId: string; url?: string };
+
+/** Authenticated playback path for an uploaded speaking recording. */
+export function mediaPlaybackPath(mediaId: string): string {
+  return `/media/${encodeURIComponent(mediaId)}`;
+}
 
 export interface AnswerSnapshot {
   questionId: string;
@@ -174,11 +179,21 @@ export interface ScoredAnswer {
   payload: AnswerPayload | null;
   correct?: boolean;
   scoreStatus: ScoreStatus;
-  /** Null while a model grade does not exist. Stub scoring leaves this null. */
+  /**
+   * Points awarded. Null while `scoreStatus` is `pending`.
+   * The MVP worker fills essay and speaking with a deterministic practice score and sets `stub`.
+   * A later model scorer should write its own number and omit `stub` (or set it false).
+   */
   score: number | null;
-  /** Question maximum. Older stored attempts may omit it. */
-  maxScore?: number;
+  maxScore: number;
+  /** True when the grade came from the deterministic practice scorer, not a model. */
   stub?: boolean;
+}
+
+export interface ViolationsSummary {
+  total: number;
+  fullscreenExit: number;
+  tabBlur: number;
 }
 
 export interface AttemptSummary {
@@ -188,100 +203,38 @@ export interface AttemptSummary {
   sessionId: string;
   submittedAt: string;
   forced: boolean;
-  scoringStatus: ScoreStatus;
   /**
-   * Known points. Auto-scored items count as soon as the attempt exists.
-   * Null only when there is no numeric total yet (for example, only unscored essay or speaking).
+   * Pending badge. `pending` while any section score is still null, otherwise `scored`.
+   * Clients can poll `GET /attempts/:id` until this flips.
    */
-  score: number | null;
-  /** Denominator for {@link score}. */
-  maxScore: number;
+  scoringStatus: ScoreStatus;
+  /** Total score. Null while `scoringStatus` is `pending`. */
+  overallScore: number | null;
+  overallMaxScore: number;
+  sectionScores: SectionScore[];
+  violations: ViolationsSummary;
 }
 
 export interface AttemptDetail extends AttemptSummary {
-  sectionScores: SectionScore[];
   answers: ScoredAnswer[];
-  violations: ViolationRecord[];
 }
 
-export function isAutoScoredType(type: QuestionType) {
-  return type === 'multiple_choice' || type === 'listening';
+export function overallMaxScoreOf(sectionScores: SectionScore[]): number {
+  return sectionScores.reduce((sum, section) => sum + section.maxScore, 0);
 }
 
-export function isModelScoredType(type: QuestionType) {
-  return type === 'essay' || type === 'speaking';
-}
-
-export interface ScoreRollup {
-  scoringStatus: ScoreStatus;
-  score: number | null;
-  maxScore: number;
-}
-
-/** Points already awarded on multiple-choice and listening items. */
-export function partialAutoScore(result: {
-  sectionScores: SectionScore[];
-  answers: ScoredAnswer[];
-}): { earned: number; max: number } {
-  const auto = result.answers.filter((answer) => isAutoScoredType(answer.type));
-  const earned = auto.reduce((sum, answer) => sum + (answer.score ?? 0), 0);
-  if (auto.length > 0 && auto.every((answer) => typeof answer.maxScore === 'number')) {
-    return {
-      earned,
-      max: auto.reduce((sum, answer) => sum + (answer.maxScore ?? 0), 0),
-    };
-  }
-
-  let max = 0;
-  for (const section of result.sectionScores) {
-    const answers = result.answers.filter((answer) => answer.sectionId === section.sectionId);
-    if (answers.length > 0 && answers.every((answer) => isAutoScoredType(answer.type))) {
-      max += section.maxScore;
-    }
-  }
-  return { earned, max };
-}
-
-/**
- * History total. `scoringStatus` stays `pending` while any section item is unscored.
- * `score` is the points already known, including the auto-scored partial before essay
- * and speaking are graded. A stub grade with a null score does not add model points.
- */
-export function rollupAttemptScore(result: {
-  sectionScores: SectionScore[];
-  answers: ScoredAnswer[];
-}): ScoreRollup {
-  const scoringStatus: ScoreStatus = result.answers.some(
-    (answer) => answer.scoreStatus === 'pending',
-  )
-    ? 'pending'
-    : 'scored';
-  const partial = partialAutoScore(result);
-  if (scoringStatus === 'pending') {
-    return {
-      scoringStatus,
-      score: partial.max > 0 ? partial.earned : null,
-      maxScore: partial.max,
-    };
-  }
-
-  const model = result.answers.filter((answer) => isModelScoredType(answer.type));
-  const modelReady = model.every((answer) => typeof answer.score === 'number');
-  if (model.length === 0 || modelReady) {
-    const modelEarned = model.reduce((sum, answer) => sum + (answer.score ?? 0), 0);
-    const modelMaxKnown = model.every((answer) => typeof answer.maxScore === 'number');
-    const maxScore = modelMaxKnown
-      ? partial.max + model.reduce((sum, answer) => sum + (answer.maxScore ?? 0), 0)
-      : result.sectionScores.reduce((sum, section) => sum + section.maxScore, 0);
-    return { scoringStatus, score: partial.earned + modelEarned, maxScore };
-  }
-
-  return { scoringStatus, score: partial.earned, maxScore: partial.max };
+/** Null while any section is still waiting on a numeric score. */
+export function overallScoreOf(sectionScores: SectionScore[]): number | null {
+  if (sectionScores.some((section) => section.score === null)) return null;
+  return sectionScores.reduce((sum, section) => sum + (section.score ?? 0), 0);
 }
 
 export interface MediaUploadResponse {
   mediaId: string;
+  /** Authenticated playback path (`/media/:mediaId`). */
   url: string;
+  /** Object key (`speaking/<mediaId>.<ext>`) on local disk or in the bucket. */
+  key: string;
 }
 
 export function isAttemptResult(value: unknown): value is {

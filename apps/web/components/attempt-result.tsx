@@ -5,22 +5,20 @@ import {
   ScoredAnswer,
   ScoreStatus,
   SectionScore,
-  isAutoScoredType,
-  isModelScoredType,
-  partialAutoScore,
+  ViolationsSummary,
 } from '@toefl/shared';
 import {
   formatDateTime,
+  formatOverall,
   formatPoints,
   formatQuestionType,
   formatScoringStatus,
-  formatViolation,
 } from '../lib/format';
 
 export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
   const pending = attempt.scoringStatus === 'pending';
-  const auto = partialAutoScore(attempt);
-  const modelAnswers = attempt.answers.filter((answer) => isModelScoredType(answer.type));
+  const auto = partialAutoScore(attempt.answers);
+  const modelAnswers = attempt.answers.filter((answer) => isModelScored(answer.type));
   const modelPending = modelAnswers.some((answer) => answer.scoreStatus === 'pending');
 
   return (
@@ -33,7 +31,7 @@ export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
       </p>
       <p className="mt-3 text-sm text-ink/55">Read only. Submitted answers cannot be changed.</p>
 
-      {pending ? <AiScoringBanner /> : null}
+      {pending ? <PendingBanner /> : null}
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
         <article className="rounded-card border border-ink/10 bg-card p-5 shadow-sm">
@@ -42,7 +40,7 @@ export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
             {formatPoints(auto.earned, auto.max)}
           </p>
           <p className="mt-2 text-sm leading-6 text-ink/65">
-            Multiple choice and listening. These points are available as soon as the exam is
+            Multiple choice and listening. These points are on the attempt as soon as it is
             submitted.
           </p>
         </article>
@@ -52,14 +50,14 @@ export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
             {modelAnswers.length === 0 ? 'None' : modelPending ? 'Pending' : 'Scored'}
           </p>
           <p className="mt-2 text-sm leading-6 text-ink/65">
-            {modelAnswers.length === 0
-              ? 'This exam has no essay or speaking responses.'
-              : modelPending
-                ? 'Pending until a grade is stored. This page refreshes, then these items show Scored.'
-                : 'Scored. Essay and speaking grades are final for this attempt.'}
+            {modelCopy(modelAnswers, modelPending)}
           </p>
         </article>
       </div>
+
+      <p className="mt-6 text-sm text-ink/70">
+        Total {formatOverall(attempt.overallScore, attempt.overallMaxScore)}
+      </p>
 
       <section className="mt-6 rounded-card border border-ink/10 bg-card p-5 shadow-sm">
         <h2 className="font-serif text-2xl">Section scores</h2>
@@ -68,21 +66,20 @@ export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
             const answers = attempt.answers.filter(
               (answer) => answer.sectionId === section.sectionId,
             );
-            const status = sectionStatus(answers);
             return (
               <li key={section.sectionId} className="flex items-center justify-between gap-4 py-3">
                 <div>
                   <p className="font-medium">{section.name}</p>
-                  <p className="mt-1 text-sm text-ink/65">{sectionScoreLabel(section, answers)}</p>
+                  <p className="mt-1 text-sm text-ink/65">{sectionScoreLabel(section)}</p>
                 </div>
-                <ScorePill status={status} />
+                <ScorePill status={sectionStatus(section, answers)} />
               </li>
             );
           })}
         </ul>
       </section>
 
-      {attempt.violations.length > 0 ? <ViolationList attempt={attempt} /> : null}
+      <ViolationFlags violations={attempt.violations} />
 
       <section className="mt-6 space-y-6">
         <h2 className="font-serif text-2xl">Breakdown</h2>
@@ -95,9 +92,9 @@ export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
             <div key={section.sectionId}>
               <div className="flex items-center justify-between gap-3">
                 <h3 className="font-serif text-xl">{section.name}</h3>
-                <ScorePill status={sectionStatus(answers)} />
+                <ScorePill status={sectionStatus(section, answers)} />
               </div>
-              <p className="mt-1 text-sm text-ink/65">{sectionScoreLabel(section, answers)}</p>
+              <p className="mt-1 text-sm text-ink/65">{sectionScoreLabel(section)}</p>
               {groups.length === 0 ? (
                 <p className="mt-3 text-sm text-ink/60">No responses saved for this section.</p>
               ) : (
@@ -108,7 +105,7 @@ export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
                         <span className="font-medium">{formatQuestionType(group.type)}</span>
                         <span
                           className={
-                            sectionStatus(group.answers) === 'pending'
+                            groupStatus(group.answers) === 'pending'
                               ? 'text-primary'
                               : 'text-ink/70'
                           }
@@ -154,7 +151,7 @@ export function AttemptResult({ attempt }: { attempt: AttemptDetail }) {
   );
 }
 
-function AiScoringBanner() {
+function PendingBanner() {
   return (
     <div
       role="status"
@@ -168,45 +165,78 @@ function AiScoringBanner() {
         <p className="font-medium text-primary">Pending</p>
         <p className="mt-1 text-sm leading-6 text-ink/75">
           Essay and speaking are Pending. Multiple choice and listening scores are already shown.
-          This page refreshes until those items are Scored.
+          This page refreshes until those sections are Scored.
         </p>
       </div>
     </div>
   );
 }
 
-function ViolationList({ attempt }: { attempt: AttemptDetail }) {
-  const counts = attempt.violations.reduce<Record<string, number>>((map, violation) => {
-    map[violation.type] = (map[violation.type] ?? 0) + 1;
-    return map;
-  }, {});
+function ViolationFlags({ violations }: { violations: ViolationsSummary }) {
+  const flags = [
+    violations.fullscreenExit > 0
+      ? { key: 'fullscreen', label: 'Fullscreen exit', count: violations.fullscreenExit }
+      : null,
+    violations.tabBlur > 0 ? { key: 'tab', label: 'Tab blur', count: violations.tabBlur } : null,
+  ].filter((flag): flag is { key: string; label: string; count: number } => flag !== null);
+  if (flags.length === 0) return null;
 
   return (
     <section className="mt-6 rounded-card border border-ink/10 bg-card p-5 shadow-sm">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="font-serif text-2xl">Violations</h2>
-        <span className="text-sm text-ink/60">{attempt.violations.length}</span>
+        <span className="text-sm text-ink/60">{violations.total}</span>
       </div>
       <p className="mt-2 text-sm leading-6 text-ink/65">
-        Fullscreen exits and tab switches recorded during this session. The timers did not pause.
+        Fullscreen exits and tab switches recorded before submit. The timers did not pause.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">
-        {Object.entries(counts).map(([type, count]) => (
-          <span key={type} className="rounded-full bg-canvas px-2.5 py-1 text-xs text-ink/80">
-            {formatViolation(type)} · {count}
+        {flags.map((flag) => (
+          <span key={flag.key} className="rounded-full bg-canvas px-2.5 py-1 text-xs text-ink/80">
+            {flag.label} · {flag.count}
           </span>
         ))}
       </div>
-      <ul className="mt-4 divide-y divide-ink/10">
-        {attempt.violations.map((violation) => (
-          <li key={violation.id} className="flex items-baseline justify-between gap-3 py-3 text-sm">
-            <span>{formatViolation(violation.type)}</span>
-            <span className="text-ink/60">{formatDateTime(violation.at)}</span>
-          </li>
-        ))}
-      </ul>
     </section>
   );
+}
+
+function modelCopy(answers: ScoredAnswer[], pending: boolean) {
+  if (answers.length === 0) return 'This exam has no essay or speaking responses.';
+  if (pending)
+    return 'Pending until a grade is stored. This page refreshes, then these items show Scored.';
+  if (answers.some((answer) => answer.stub)) {
+    return 'Scored with a practice grade. A later model can replace that number.';
+  }
+  return 'Scored. Essay and speaking grades are final for this attempt.';
+}
+
+function partialAutoScore(answers: ScoredAnswer[]) {
+  const auto = answers.filter((answer) => isAutoScored(answer.type));
+  return {
+    earned: auto.reduce((sum, answer) => sum + (answer.score ?? 0), 0),
+    max: auto.reduce((sum, answer) => sum + answer.maxScore, 0),
+  };
+}
+
+function isAutoScored(type: QuestionType) {
+  return type === 'multiple_choice' || type === 'listening';
+}
+
+function isModelScored(type: QuestionType) {
+  return type === 'essay' || type === 'speaking';
+}
+
+function sectionStatus(section: SectionScore, answers: ScoredAnswer[]): ScoreStatus {
+  if (section.score === null || answers.some((answer) => answer.scoreStatus === 'pending')) {
+    return 'pending';
+  }
+  return 'scored';
+}
+
+function sectionScoreLabel(section: SectionScore) {
+  if (section.score === null) return 'Pending';
+  return formatPoints(section.score, section.maxScore);
 }
 
 const TYPE_ORDER: QuestionType[] = ['multiple_choice', 'listening', 'speaking', 'essay'];
@@ -224,74 +254,25 @@ function groupByType(answers: ScoredAnswer[]) {
   });
 }
 
-function typeScoreLabel(answers: ScoredAnswer[]) {
-  if (answers.some((answer) => answer.scoreStatus === 'pending')) return 'Pending';
-  if (answers.every((answer) => isModelScoredType(answer.type))) {
-    const numeric = answers.filter((answer) => typeof answer.score === 'number');
-    if (
-      numeric.length === answers.length &&
-      numeric.every((answer) => typeof answer.maxScore === 'number')
-    ) {
-      const earned = numeric.reduce((sum, answer) => sum + (answer.score ?? 0), 0);
-      const max = numeric.reduce((sum, answer) => sum + (answer.maxScore ?? 0), 0);
-      return `Scored · ${formatPoints(earned, max)}`;
-    }
-    return 'Scored';
-  }
-  const earned = answers.reduce((sum, answer) => sum + (answer.score ?? 0), 0);
-  const maxKnown = answers.every((answer) => typeof answer.maxScore === 'number');
-  const max = maxKnown ? answers.reduce((sum, answer) => sum + (answer.maxScore ?? 0), 0) : 0;
-  return formatPoints(earned, max);
-}
-
-function sectionStatus(answers: ScoredAnswer[]): ScoreStatus {
+function groupStatus(answers: ScoredAnswer[]): ScoreStatus {
   return answers.some((answer) => answer.scoreStatus === 'pending') ? 'pending' : 'scored';
 }
 
-function sectionScoreLabel(section: SectionScore, answers: ScoredAnswer[]) {
-  const auto = answers.filter((answer) => isAutoScoredType(answer.type));
-  const model = answers.filter((answer) => isModelScoredType(answer.type));
-  const pending = answers.some((answer) => answer.scoreStatus === 'pending');
-  const autoEarned = auto.reduce((sum, answer) => sum + (answer.score ?? 0), 0);
-  const autoMaxKnown =
-    auto.length > 0 && auto.every((answer) => typeof answer.maxScore === 'number');
-  const autoMax = autoMaxKnown
-    ? auto.reduce((sum, answer) => sum + (answer.maxScore ?? 0), 0)
-    : auto.length === answers.length
-      ? section.maxScore
-      : 0;
-
-  if (pending && auto.length === 0) return 'Pending';
-  if (pending) {
-    const partial = formatPoints(autoEarned, autoMax);
-    return `${partial} auto-scored · Pending`;
-  }
-  if (model.length > 0 && model.every((answer) => answer.score === null)) {
-    if (auto.length === 0) return 'Scored';
-    return `${formatPoints(autoEarned, autoMax)} auto-scored · essay and speaking scored`;
-  }
-  if (section.score === null) return `— / ${section.maxScore}`;
-  return `${section.score} / ${section.maxScore}`;
+function typeScoreLabel(answers: ScoredAnswer[]) {
+  if (groupStatus(answers) === 'pending') return 'Pending';
+  const earned = answers.reduce((sum, answer) => sum + (answer.score ?? 0), 0);
+  const max = answers.reduce((sum, answer) => sum + answer.maxScore, 0);
+  if (answers.some((answer) => answer.score === null)) return 'Scored';
+  return `Scored · ${formatPoints(earned, max)}`;
 }
 
 function outcomeLabel(answer: ScoredAnswer) {
-  if (answer.scoreStatus === 'pending') return 'Pending';
-  if (isModelScoredType(answer.type)) {
-    if (typeof answer.score === 'number' && typeof answer.maxScore === 'number') {
-      return `Scored · ${answer.score} / ${answer.maxScore}`;
-    }
-    if (typeof answer.score === 'number') return `Scored · ${answer.score}`;
-    return 'Scored';
-  }
-  const points =
-    typeof answer.score === 'number' && typeof answer.maxScore === 'number'
-      ? `${answer.score} / ${answer.maxScore}`
-      : typeof answer.score === 'number'
-        ? String(answer.score)
-        : null;
-  if (answer.correct === true) return points ? `Correct · ${points}` : 'Correct';
-  if (answer.correct === false) return points ? `Incorrect · ${points}` : 'Incorrect';
-  return formatScoringStatus(answer.scoreStatus);
+  if (answer.scoreStatus === 'pending' || answer.score === null) return 'Pending';
+  const points = formatPoints(answer.score, answer.maxScore);
+  if (isModelScored(answer.type)) return `Scored · ${points}`;
+  if (answer.correct === true) return `Correct · ${points}`;
+  if (answer.correct === false) return `Incorrect · ${points}`;
+  return `Scored · ${points}`;
 }
 
 function preview(answer: ScoredAnswer) {
@@ -308,7 +289,6 @@ function preview(answer: ScoredAnswer) {
 
 export function ScorePill({ status }: { status: string }) {
   const pending = status === 'pending';
-  const label = formatScoringStatus(status);
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -318,7 +298,7 @@ export function ScorePill({ status }: { status: string }) {
       {pending ? (
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" aria-hidden />
       ) : null}
-      {label}
+      {formatScoringStatus(status)}
     </span>
   );
 }
