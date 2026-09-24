@@ -18,7 +18,7 @@ import {
   ViolationType,
 } from '@toefl/shared';
 import { ApiError, api } from '../lib/api';
-import { formatCountdown, formatQuestionType } from '../lib/format';
+import { formatCountdown } from '../lib/format';
 import { QuestionPanel } from './question-panel';
 
 const HEARTBEAT_MS = 12_000;
@@ -83,6 +83,7 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
   const [answers, setAnswers] = useState<Record<string, AnswerPayload>>({});
   const [index, setIndex] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [warning, setWarning] = useState<ViolationType | null>(null);
   const [violationNote, setViolationNote] = useState<string | null>(null);
@@ -101,6 +102,7 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
   const flightsRef = useRef(new Map<string, Promise<void>>());
   const saveTimersRef = useRef(new Map<string, number>());
   const leavingRef = useRef(false);
+  const flushingRef = useRef(false);
   const deadlineLock = useRef(false);
   const placedSection = useRef<string | null>(null);
   const hydrated = useRef(false);
@@ -156,7 +158,8 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
       return;
     }
     const payload = answersRef.current[questionId];
-    if (!payload || !dirtyRef.current.has(questionId) || leavingRef.current) return;
+    if (!payload || !dirtyRef.current.has(questionId)) return;
+    if (leavingRef.current && !flushingRef.current) return;
     const fingerprint = JSON.stringify(payload);
     const run = (async () => {
       setSaveState('saving');
@@ -169,6 +172,7 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
         if (JSON.stringify(answersRef.current[questionId]) === fingerprint) {
           dirtyRef.current.delete(questionId);
         }
+        setSavedAt(Date.now());
         setSaveState(dirtyRef.current.size === 0 ? 'saved' : 'saving');
       } catch (error) {
         dirtyRef.current.add(questionId);
@@ -198,12 +202,17 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
   }
 
   async function flushDirty() {
-    await waitForRecorder();
-    for (const timer of saveTimersRef.current.values()) window.clearTimeout(timer);
-    saveTimersRef.current.clear();
-    await Promise.all(
-      [...dirtyRef.current].map((questionId) => saveQuestionRef.current(questionId)),
-    );
+    flushingRef.current = true;
+    try {
+      await waitForRecorder();
+      for (const timer of saveTimersRef.current.values()) window.clearTimeout(timer);
+      saveTimersRef.current.clear();
+      await Promise.all(
+        [...dirtyRef.current].map((questionId) => saveQuestionRef.current(questionId)),
+      );
+    } finally {
+      flushingRef.current = false;
+    }
   }
   flushRef.current = flushDirty;
 
@@ -537,46 +546,55 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
     );
   }
 
+  const atEnd = questions.length === 0 || questionIndex >= questions.length - 1;
+  const submitSection = question?.type === 'essay' && atEnd && !isLastSection;
+  const primaryLabel = !atEnd
+    ? 'Next'
+    : isLastSection
+      ? 'Submit'
+      : submitSection
+        ? 'Submit section'
+        : 'Next';
+
+  function onPrimary() {
+    if (!atEnd) {
+      goTo(questionIndex + 1);
+      return;
+    }
+    if (!isLastSection) {
+      void nextSection();
+      return;
+    }
+    setConfirmSubmit(true);
+  }
+
   return (
-    <div className="min-h-screen bg-canvas text-ink">
+    <div className="flex min-h-screen flex-col bg-canvas text-ink">
       <header className="sticky top-0 z-30 border-b border-ink/10 bg-card/95 shadow-sm backdrop-blur">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-5 py-3">
-          <div className="min-w-0">
-            <Link href="/exams" className="text-xs tracking-[0.14em] text-ink/50 uppercase">
-              {examQuery.data?.title ?? 'TOEFL'}
-            </Link>
-            <p className="truncate font-serif text-xl">{sectionMeta?.name ?? 'Section'}</p>
-          </div>
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-4 px-5 py-3">
+          <p className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-sm font-medium text-ink">
+            <span>{sectionMeta?.name ?? 'Section'}</span>
+            <span className="text-ink/30">·</span>
+            <span>
+              Q {questions.length ? questionIndex + 1 : '–'}/{questions.length || '–'}
+            </span>
+          </p>
           {clock ? <DualTimer clock={clock} onExpire={() => void deadlineRef.current()} /> : null}
         </div>
+        {!fullscreen ? (
+          <button
+            type="button"
+            onClick={() => void enterFullscreen()}
+            className="block w-full bg-amber-100 px-5 py-2.5 text-center text-sm text-amber-950"
+          >
+            Fullscreen off — timer tetap jalan. Pelanggaran dicatat.
+          </button>
+        ) : null}
       </header>
 
-      <main className={`mx-auto max-w-3xl px-5 py-8 ${locked ? 'pointer-events-none' : ''}`}>
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-sm text-ink/65">
-          <p>
-            {questions.length > 0
-              ? `Question ${questionIndex + 1} of ${questions.length}`
-              : 'Loading questions'}
-            {question ? ` · ${formatQuestionType(question.type)}` : ''}
-          </p>
-          <p>{saveLabel(saveState)}</p>
-        </div>
-
-        {!fullscreen ? (
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-card border border-ink/10 bg-card px-4 py-3 text-sm shadow-sm">
-            <p className="text-ink/75">
-              Enter fullscreen. Leaving it is recorded, and the timers keep running.
-            </p>
-            <button
-              type="button"
-              onClick={() => void enterFullscreen()}
-              className="rounded-control bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover"
-            >
-              Enter fullscreen
-            </button>
-          </div>
-        ) : null}
-
+      <main
+        className={`mx-auto w-full max-w-3xl flex-1 px-5 py-8 ${locked ? 'pointer-events-none' : ''}`}
+      >
         {banner ? (
           <p className="mb-5 rounded-card border border-red-200 bg-card px-4 py-3 text-sm text-red-700">
             {banner}
@@ -603,33 +621,6 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
           </div>
         ) : null}
 
-        {questions.length > 1 ? (
-          <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
-            {questions.map((item, itemIndex) => {
-              const current = itemIndex === questionIndex;
-              const answered = Boolean(answers[item.id]);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  disabled={responseBusy || locked}
-                  onClick={() => goTo(itemIndex)}
-                  aria-current={current ? 'true' : undefined}
-                  className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border text-sm ${
-                    current
-                      ? 'border-primary bg-primary text-white'
-                      : answered
-                        ? 'border-primary/30 bg-primary/10 text-ink'
-                        : 'border-ink/15 bg-card text-ink/70'
-                  }`}
-                >
-                  {itemIndex + 1}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-
         {question ? (
           <QuestionPanel
             key={question.id}
@@ -645,61 +636,29 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
             This section has no questions.
           </p>
         ) : null}
-
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              disabled={questionIndex <= 0 || responseBusy || locked}
-              onClick={() => goTo(Math.max(0, questionIndex - 1))}
-              className="rounded-control border border-ink/15 bg-card px-4 py-2.5 text-sm disabled:opacity-50"
-            >
-              Previous
-            </button>
-            {questionIndex < questions.length - 1 ? (
-              <button
-                type="button"
-                disabled={responseBusy || locked}
-                onClick={() => setConfirmSubmit(true)}
-                className="text-sm text-ink/60"
-              >
-                Submit exam
-              </button>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {!isLastSection ? (
-              <button
-                type="button"
-                disabled={responseBusy || locked}
-                onClick={() => void nextSection()}
-                className="rounded-control border border-ink/15 bg-card px-4 py-2.5 text-sm disabled:opacity-50"
-              >
-                {advancing ? 'Opening…' : 'Next section'}
-              </button>
-            ) : null}
-            {questionIndex < questions.length - 1 ? (
-              <button
-                type="button"
-                disabled={responseBusy || locked}
-                onClick={() => goTo(questionIndex + 1)}
-                className="rounded-control bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"
-              >
-                Next
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={responseBusy || locked}
-                onClick={() => setConfirmSubmit(true)}
-                className="rounded-control bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"
-              >
-                Submit exam
-              </button>
-            )}
-          </div>
-        </div>
       </main>
+
+      <div className="sticky bottom-0 z-20 border-t border-ink/10 bg-card/95 shadow-sm backdrop-blur">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-5 py-3">
+          <button
+            type="button"
+            disabled={questionIndex <= 0 || responseBusy || locked}
+            onClick={() => goTo(Math.max(0, questionIndex - 1))}
+            className="rounded-control border border-ink/15 bg-card px-4 py-2.5 text-sm disabled:opacity-50"
+          >
+            Previous
+          </button>
+          <AutosaveHint state={saveState} savedAt={savedAt} />
+          <button
+            type="button"
+            disabled={responseBusy || locked || questionsQuery.isLoading}
+            onClick={onPrimary}
+            className="rounded-control bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"
+          >
+            {advancing ? 'Opening…' : primaryLabel}
+          </button>
+        </div>
+      </div>
 
       {warning && !deadlineNote ? (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-[#1c1428]/40 px-4 py-6 sm:items-center">
@@ -710,32 +669,38 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
             className="w-full max-w-md rounded-card bg-card p-6 shadow-lg"
           >
             <h2 id="violation-title" className="font-serif text-2xl">
-              Timer still running
+              {warning === 'fullscreen_exit' ? 'Kamu keluar fullscreen' : 'Timer masih jalan'}
             </h2>
             <p className="mt-3 text-sm leading-6 text-ink/75">
-              {warning === 'fullscreen_exit'
-                ? 'You left fullscreen. The section timer and the overall timer keep running, and this has been recorded.'
-                : 'You switched away from this tab. The section timer and the overall timer keep running, and this has been recorded.'}
+              Timer tetap jalan. Pelanggaran ini sudah dicatat.
             </p>
             {violationNote ? <p className="mt-3 text-sm text-red-700">{violationNote}</p> : null}
-            <div className="mt-5 flex flex-wrap gap-2">
-              <button
-                ref={continueRef}
-                type="button"
-                onClick={() => setWarning(null)}
-                className="rounded-control bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-hover"
-              >
-                Continue
-              </button>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
               {warning === 'fullscreen_exit' ? (
                 <button
                   type="button"
-                  onClick={() => void enterFullscreen()}
-                  className="rounded-control border border-ink/15 px-4 py-2.5 text-sm"
+                  onClick={() => setWarning(null)}
+                  className="rounded-control px-4 py-2.5 text-sm text-ink/70"
                 >
-                  Return to fullscreen
+                  Lanjut tanpa fullscreen
                 </button>
               ) : null}
+              <button
+                ref={continueRef}
+                type="button"
+                onClick={() => {
+                  if (warning === 'fullscreen_exit') {
+                    void enterFullscreen().then(() => {
+                      if (document.fullscreenElement) setWarning(null);
+                    });
+                    return;
+                  }
+                  setWarning(null);
+                }}
+                className="rounded-control bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-hover"
+              >
+                {warning === 'fullscreen_exit' ? 'Kembali ke fullscreen' : 'Lanjut'}
+              </button>
             </div>
           </div>
         </div>
@@ -822,21 +787,20 @@ function DualTimer({ clock, onExpire }: { clock: Clock; onExpire: () => void }) 
 
   const sectionLeft = remainingMs(clock.sectionEndsAt, clock, now);
   const overallLeft = remainingMs(clock.overallEndsAt, clock, now);
-  const urgent = sectionLeft < 60_000;
 
   return (
-    <div className="flex items-stretch gap-2">
-      <div
-        className={`rounded-control px-4 py-2 text-white ${urgent ? 'bg-amber-600' : 'bg-primary'}`}
-      >
-        <p className="text-[10px] tracking-[0.14em] text-white/80 uppercase">Section</p>
-        <p className="font-serif text-2xl leading-none tabular-nums">
+    <div className="flex items-end gap-5">
+      <div>
+        <p className="text-[10px] font-semibold tracking-[0.16em] text-primary uppercase">
+          Section left
+        </p>
+        <p className="font-serif text-3xl leading-none font-semibold text-primary tabular-nums">
           {formatCountdown(sectionLeft)}
         </p>
       </div>
-      <div className="rounded-control border border-ink/10 bg-canvas px-3 py-2">
-        <p className="text-[10px] tracking-[0.14em] text-ink/50 uppercase">Overall</p>
-        <p className="font-serif text-lg leading-none text-ink/80 tabular-nums">
+      <div>
+        <p className="text-[10px] tracking-[0.16em] text-ink/40 uppercase">Overall left</p>
+        <p className="font-serif text-xl leading-none text-ink/45 tabular-nums">
           {formatCountdown(overallLeft)}
         </p>
       </div>
@@ -844,15 +808,22 @@ function DualTimer({ clock, onExpire }: { clock: Clock; onExpire: () => void }) 
   );
 }
 
-function saveLabel(state: SaveState) {
-  switch (state) {
-    case 'saving':
-      return 'Saving…';
-    case 'saved':
-      return 'Saved';
-    case 'error':
-      return 'Could not save';
-    default:
-      return 'Answers save automatically';
+function AutosaveHint({ state, savedAt }: { state: SaveState; savedAt: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (state !== 'saved' || savedAt == null) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [state, savedAt]);
+
+  let label = 'Answers save automatically';
+  if (state === 'saving') label = 'Saving…';
+  else if (state === 'error') label = 'Could not save';
+  else if (state === 'saved' && savedAt != null) {
+    const seconds = Math.max(0, Math.round((now - savedAt) / 1000));
+    label = seconds < 1 ? 'Autosaved just now' : `Autosaved ${seconds}s ago`;
   }
+
+  return <p className="text-xs text-ink/50">{label}</p>;
 }
