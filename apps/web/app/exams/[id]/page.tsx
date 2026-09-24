@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { ExamDetail, ExamSummary, SessionState } from '@toefl/shared';
 import { Shell } from '../../../components/shell';
 import { useAuth } from '../../../components/providers';
@@ -37,27 +37,36 @@ export default function ExamDetailPage() {
     queryFn: () => api<ExamSummary[]>('/exams'),
     enabled: ready && Boolean(token),
   });
-  const inProgress = exams.data?.find((item) => item.id === examId)?.status === 'in_progress';
+  const summary = exams.data?.find((item) => item.id === examId);
+  const activeSessionId = summary?.activeSessionId ?? null;
+  const inProgress = summary?.status === 'in_progress' || Boolean(activeSessionId);
 
   const start = useMutation({
     mutationFn: (id: string) => api<SessionState>(`/exams/${id}/sessions`, { method: 'POST' }),
   });
 
-  function openSession(sessionId: string) {
-    void queryClient.invalidateQueries({ queryKey: ['exams'] });
-    const path = `/sessions/${sessionId}`;
-    router.push(path);
-    // Fullscreen can swallow the client navigation and leave the pra-test on screen.
-    if (fallbackNav.current !== null) window.clearTimeout(fallbackNav.current);
-    fallbackNav.current = window.setTimeout(() => {
-      fallbackNav.current = null;
-      if (window.location.pathname !== path) window.location.assign(path);
-    }, 1200);
-  }
+  const openSession = useCallback(
+    (sessionId: string) => {
+      void queryClient.invalidateQueries({ queryKey: ['exams'] });
+      const path = `/sessions/${sessionId}`;
+      router.push(path);
+      // Fullscreen can swallow the client navigation and leave the pra-test on screen.
+      if (fallbackNav.current !== null) window.clearTimeout(fallbackNav.current);
+      fallbackNav.current = window.setTimeout(() => {
+        fallbackNav.current = null;
+        if (window.location.pathname !== path) window.location.assign(path);
+      }, 1200);
+    },
+    [queryClient, router],
+  );
 
   async function begin() {
-    if (!examId) return;
     void document.documentElement.requestFullscreen?.().catch(() => undefined);
+    if (activeSessionId) {
+      openSession(activeSessionId);
+      return;
+    }
+    if (!examId) return;
     try {
       const session = await start.mutateAsync(examId);
       openSession(session.id);
@@ -66,6 +75,11 @@ export default function ExamDetailPage() {
       if (existing) openSession(existing);
     }
   }
+
+  const conflictSessionId = start.isError ? sessionIdFromError(start.error) : null;
+  useEffect(() => {
+    if (conflictSessionId) openSession(conflictSessionId);
+  }, [conflictSessionId, openSession]);
 
   return (
     <Shell
@@ -154,7 +168,7 @@ export default function ExamDetailPage() {
                     ? 'Lanjutkan'
                     : 'Mulai'}
               </button>
-              {start.isError && !sessionIdFromError(start.error) ? (
+              {start.isError && !conflictSessionId ? (
                 <p className="mt-3 text-sm text-white">
                   {start.error instanceof ApiError ? start.error.message : 'Could not start'}
                 </p>

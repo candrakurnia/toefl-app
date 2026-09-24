@@ -47,6 +47,8 @@ export interface ExamSummary {
   /** Seconds. The seeded exam is {@link OVERALL_WINDOW_SEC} (24 hours). */
   durationOverall: number;
   status: ExamProgressStatus;
+  /** Set when `status` is `in_progress`. Resume with `GET /sessions/:sessionId`. */
+  activeSessionId: string | null;
 }
 
 export interface ExamSection {
@@ -98,6 +100,40 @@ export interface SessionState {
   currentSectionId: string | null;
   answers: AnswerSnapshot[];
   violations: ViolationRecord[];
+}
+
+/** `POST /exams/:id/sessions` when this user already has an active session for the exam. */
+export const ACTIVE_SESSION_CONFLICT_CODE = 'ACTIVE_SESSION_EXISTS' as const;
+
+export const ACTIVE_SESSION_CONFLICT_MESSAGE = 'An active session already exists for this exam';
+
+export interface ActiveSessionConflict {
+  statusCode: 409;
+  message: typeof ACTIVE_SESSION_CONFLICT_MESSAGE;
+  code: typeof ACTIVE_SESSION_CONFLICT_CODE;
+  /** Id of the in-progress session. Resume with `GET /sessions/:sessionId`. */
+  sessionId: string;
+}
+
+export function activeSessionConflictBody(sessionId: string): ActiveSessionConflict {
+  return {
+    statusCode: 409,
+    message: ACTIVE_SESSION_CONFLICT_MESSAGE,
+    code: ACTIVE_SESSION_CONFLICT_CODE,
+    sessionId,
+  };
+}
+
+/** Reads `sessionId` from a 409 body, including a Nest body whose `message` is that object. */
+export function sessionIdFromConflict(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const record = body as { sessionId?: unknown; message?: unknown };
+  if (typeof record.sessionId === 'string' && record.sessionId.length > 0) return record.sessionId;
+  if (record.message && typeof record.message === 'object') {
+    const nested = (record.message as { sessionId?: unknown }).sessionId;
+    if (typeof nested === 'string' && nested.length > 0) return nested;
+  }
+  return null;
 }
 
 export interface PublicQuestion {
