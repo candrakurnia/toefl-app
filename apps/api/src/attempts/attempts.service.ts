@@ -1,6 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AttemptDetail, AttemptSummary, ScoreStatus, isAttemptResult } from '@toefl/shared';
+import {
+  AttemptDetail,
+  AttemptSummary,
+  ViolationRecord,
+  ViolationType,
+  VIOLATION_TYPES,
+  isAttemptResult,
+  rollupAttemptScore,
+} from '@toefl/shared';
 import { PrismaService } from '../prisma/prisma.service';
+
+const VIOLATION_TYPE_SET = new Set<string>(VIOLATION_TYPES);
 
 @Injectable()
 export class AttemptsService {
@@ -19,7 +29,10 @@ export class AttemptsService {
   async get(userId: string, attemptId: string): Promise<AttemptDetail> {
     const attempt = await this.prisma.attempt.findFirst({
       where: { id: attemptId, userId },
-      include: { exam: true },
+      include: {
+        exam: true,
+        session: { include: { violations: { orderBy: { at: 'asc' } } } },
+      },
     });
     if (!attempt || !isAttemptResult(attempt.result)) {
       throw new NotFoundException('Attempt not found');
@@ -28,6 +41,15 @@ export class AttemptsService {
       ...this.toSummary(attempt),
       sectionScores: attempt.result.sectionScores,
       answers: attempt.result.answers,
+      violations: attempt.session.violations.flatMap((violation) => {
+        if (!VIOLATION_TYPE_SET.has(violation.type)) return [];
+        const record: ViolationRecord = {
+          id: violation.id,
+          type: violation.type as ViolationType,
+          at: violation.at.toISOString(),
+        };
+        return [record];
+      }),
     };
   }
 
@@ -43,11 +65,7 @@ export class AttemptsService {
     const result = isAttemptResult(attempt.result)
       ? attempt.result
       : { answers: [], sectionScores: [] };
-    const scoringStatus: ScoreStatus = result.answers.some(
-      (answer) => answer.scoreStatus === 'pending',
-    )
-      ? 'pending'
-      : 'scored';
+    const rollup = rollupAttemptScore(result);
     return {
       id: attempt.id,
       examId: attempt.examId,
@@ -55,7 +73,9 @@ export class AttemptsService {
       sessionId: attempt.sessionId,
       submittedAt: attempt.submittedAt.toISOString(),
       forced: attempt.forced,
-      scoringStatus,
+      scoringStatus: rollup.scoringStatus,
+      score: rollup.score,
+      maxScore: rollup.maxScore,
     };
   }
 }

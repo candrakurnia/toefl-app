@@ -67,6 +67,7 @@ function scoreOne(
       payload,
       scoreStatus: 'pending',
       score: null,
+      maxScore: question.maxScore,
     };
   }
 
@@ -82,5 +83,6 @@ function scoreOne(
     correct,
     scoreStatus: 'scored',
     score: correct ? question.maxScore : 0,
+    maxScore: question.maxScore,
   };
 }

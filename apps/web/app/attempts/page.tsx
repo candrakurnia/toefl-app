@@ -9,7 +9,7 @@ import { ScorePill } from '../../components/attempt-result';
 import { Shell } from '../../components/shell';
 import { useAuth } from '../../components/providers';
 import { api } from '../../lib/api';
-import { formatDateTime } from '../../lib/format';
+import { formatAttemptScore, formatDateTime } from '../../lib/format';
 
 export default function AttemptsPage() {
   const { token, ready } = useAuth();
@@ -23,6 +23,8 @@ export default function AttemptsPage() {
     queryKey: ['attempts'],
     queryFn: () => api<AttemptSummary[]>('/attempts'),
     enabled: ready && Boolean(token),
+    refetchInterval: (query) =>
+      query.state.data?.some((attempt) => attempt.scoringStatus === 'pending') ? 3000 : false,
   });
 
   return (
@@ -37,7 +39,8 @@ export default function AttemptsPage() {
         <p className="text-xs tracking-[0.16em] text-ink/50 uppercase">History</p>
         <h1 className="mt-2 font-serif text-4xl">Attempts</h1>
         <p className="mt-3 text-sm leading-6 text-ink/70">
-          Submitted exams stay here, including partial scores and items still waiting on AI scoring.
+          Each submitted exam is listed with its date, score, and scoring status. Open one to review
+          the result. Nothing here can be edited.
         </p>
       </div>
 
@@ -56,29 +59,44 @@ export default function AttemptsPage() {
           </p>
         ) : null}
         {attempts.data?.map((attempt) => (
-          <article
-            key={attempt.id}
-            className="flex flex-col justify-between gap-4 rounded-card border border-ink/10 bg-card p-5 shadow-sm sm:flex-row sm:items-center"
-          >
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-serif text-2xl">{attempt.examTitle}</h2>
-                <ScorePill status={attempt.scoringStatus} />
-              </div>
-              <p className="mt-2 text-sm text-ink/65">
-                {formatDateTime(attempt.submittedAt)}
-                {attempt.forced ? ' · timer ended the attempt' : ''}
-              </p>
-            </div>
-            <Link
-              href={`/attempts/${attempt.id}`}
-              className="inline-flex justify-center rounded-control bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-hover"
-            >
-              View result
-            </Link>
-          </article>
+          <AttemptRow key={attempt.id} attempt={attempt} />
         ))}
       </div>
     </Shell>
+  );
+}
+
+function AttemptRow({ attempt }: { attempt: AttemptSummary }) {
+  return (
+    <Link
+      href={`/attempts/${attempt.id}`}
+      className="block rounded-card border border-ink/10 bg-card p-5 shadow-sm transition hover:border-primary/40"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <h2 className="font-serif text-2xl">{attempt.examTitle}</h2>
+        <span className="text-sm font-medium text-primary">View</span>
+      </div>
+      <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <div>
+          <dt className="text-xs tracking-[0.14em] text-ink/45 uppercase">Date</dt>
+          <dd className="mt-1 text-sm text-ink/80">{formatDateTime(attempt.submittedAt)}</dd>
+          {attempt.forced ? (
+            <dd className="mt-1 text-xs text-ink/55">Timer ended the attempt</dd>
+          ) : null}
+        </div>
+        <div>
+          <dt className="text-xs tracking-[0.14em] text-ink/45 uppercase">Score</dt>
+          <dd className="mt-1 text-sm text-ink/80">
+            {formatAttemptScore(attempt.score, attempt.maxScore)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs tracking-[0.14em] text-ink/45 uppercase">Status</dt>
+          <dd className="mt-1">
+            <ScorePill status={attempt.scoringStatus} />
+          </dd>
+        </div>
+      </dl>
+    </Link>
   );
 }

@@ -176,6 +176,8 @@ export interface ScoredAnswer {
   scoreStatus: ScoreStatus;
   /** Null while a model grade does not exist. Stub scoring leaves this null. */
   score: number | null;
+  /** Question maximum. Older stored attempts may omit it. */
+  maxScore?: number;
   stub?: boolean;
 }
 
@@ -187,11 +189,90 @@ export interface AttemptSummary {
   submittedAt: string;
   forced: boolean;
   scoringStatus: ScoreStatus;
+  /**
+   * Points that can be shown as a finished total.
+   * Null while any essay or speaking item is still pending.
+   */
+  score: number | null;
+  /** Denominator for {@link score}. Auto-scored maximum while scoring is pending. */
+  maxScore: number;
 }
 
 export interface AttemptDetail extends AttemptSummary {
   sectionScores: SectionScore[];
   answers: ScoredAnswer[];
+  violations: ViolationRecord[];
+}
+
+export function isAutoScoredType(type: QuestionType) {
+  return type === 'multiple_choice' || type === 'listening';
+}
+
+export function isModelScoredType(type: QuestionType) {
+  return type === 'essay' || type === 'speaking';
+}
+
+export interface ScoreRollup {
+  scoringStatus: ScoreStatus;
+  score: number | null;
+  maxScore: number;
+}
+
+/** Points already awarded on multiple-choice and listening items. */
+export function partialAutoScore(result: {
+  sectionScores: SectionScore[];
+  answers: ScoredAnswer[];
+}): { earned: number; max: number } {
+  const auto = result.answers.filter((answer) => isAutoScoredType(answer.type));
+  const earned = auto.reduce((sum, answer) => sum + (answer.score ?? 0), 0);
+  if (auto.length > 0 && auto.every((answer) => typeof answer.maxScore === 'number')) {
+    return {
+      earned,
+      max: auto.reduce((sum, answer) => sum + (answer.maxScore ?? 0), 0),
+    };
+  }
+
+  let max = 0;
+  for (const section of result.sectionScores) {
+    const answers = result.answers.filter((answer) => answer.sectionId === section.sectionId);
+    if (answers.length > 0 && answers.every((answer) => isAutoScoredType(answer.type))) {
+      max += section.maxScore;
+    }
+  }
+  return { earned, max };
+}
+
+/**
+ * History score. Stays null until essay and speaking leave `pending`.
+ * After that, a numeric model grade is included; a stub grade with a null score
+ * leaves the total as the auto-scored partial.
+ */
+export function rollupAttemptScore(result: {
+  sectionScores: SectionScore[];
+  answers: ScoredAnswer[];
+}): ScoreRollup {
+  const scoringStatus: ScoreStatus = result.answers.some(
+    (answer) => answer.scoreStatus === 'pending',
+  )
+    ? 'pending'
+    : 'scored';
+  const partial = partialAutoScore(result);
+  if (scoringStatus === 'pending') {
+    return { scoringStatus, score: null, maxScore: partial.max };
+  }
+
+  const model = result.answers.filter((answer) => isModelScoredType(answer.type));
+  const modelReady = model.every((answer) => typeof answer.score === 'number');
+  if (model.length === 0 || modelReady) {
+    const modelEarned = model.reduce((sum, answer) => sum + (answer.score ?? 0), 0);
+    const modelMaxKnown = model.every((answer) => typeof answer.maxScore === 'number');
+    const maxScore = modelMaxKnown
+      ? partial.max + model.reduce((sum, answer) => sum + (answer.maxScore ?? 0), 0)
+      : result.sectionScores.reduce((sum, section) => sum + section.maxScore, 0);
+    return { scoringStatus, score: partial.earned + modelEarned, maxScore };
+  }
+
+  return { scoringStatus, score: partial.earned, maxScore: partial.max };
 }
 
 export interface MediaUploadResponse {

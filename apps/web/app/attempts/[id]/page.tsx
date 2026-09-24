@@ -25,6 +25,7 @@ export default function AttemptPage() {
     queryFn: () => api<AttemptDetail>(`/attempts/${attemptId}`),
     enabled: ready && Boolean(token) && Boolean(attemptId),
     refetchInterval: (query) => (query.state.data?.scoringStatus === 'pending' ? 3000 : false),
+    refetchIntervalInBackground: true,
   });
 
   return (

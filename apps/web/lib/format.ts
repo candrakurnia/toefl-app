@@ -58,13 +58,47 @@ export function formatDateTime(iso: string) {
   return date.toLocaleString();
 }
 
+/** History status. Pending work is shown as the in-progress scoring state. */
 export function formatScoringStatus(status: string) {
   switch (status) {
     case 'pending':
-      return 'Pending AI scoring';
+      return 'AI scoring…';
     case 'scored':
       return 'Scored';
     default:
       return status;
+  }
+}
+
+/** Per-section and per-question state: Pending or Scored. */
+export function formatScoreState(status: string) {
+  switch (status) {
+    case 'pending':
+      return 'Pending';
+    case 'scored':
+      return 'Scored';
+    default:
+      return formatScoringStatus(status);
+  }
+}
+
+export function formatPoints(earned: number, max: number) {
+  if (max <= 0) return earned === 0 ? '—' : String(earned);
+  return `${earned} / ${max}`;
+}
+
+export function formatAttemptScore(score: number | null, maxScore: number) {
+  if (score === null) return 'Pending';
+  return formatPoints(score, maxScore);
+}
+
+export function formatViolation(type: string) {
+  switch (type) {
+    case 'fullscreen_exit':
+      return 'Fullscreen exit';
+    case 'tab_blur':
+      return 'Tab blur';
+    default:
+      return type;
   }
 }
