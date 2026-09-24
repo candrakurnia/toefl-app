@@ -69,10 +69,12 @@ export default function ExamsPage() {
               </p>
             </div>
             <Link
-              href={`/exams/${exam.id}`}
+              href={
+                exam.activeSessionId ? `/sessions/${exam.activeSessionId}` : `/exams/${exam.id}`
+              }
               className="inline-flex justify-center rounded-control bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-hover"
             >
-              View pra-test
+              {exam.activeSessionId ? 'Resume' : 'View pra-test'}
             </Link>
           </article>
         ))}

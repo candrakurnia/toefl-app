@@ -20,11 +20,13 @@ export class ExamsService {
     });
     return exams.map((exam) => {
       const mine = sessions.filter((session) => session.examId === exam.id);
+      const active = mine.find((session) => session.status === 'active');
       return {
         id: exam.id,
         title: exam.title,
         durationOverall: exam.durationOverall,
         status: progressFor(mine.map((session) => session.status)),
+        activeSessionId: active?.id ?? null,
       };
     });
   }

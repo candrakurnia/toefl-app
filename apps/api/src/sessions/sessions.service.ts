@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, Session } from '@prisma/client';
 import {
+  activeSessionConflictBody,
   HeartbeatResponse,
   mediaPlaybackPath,
   PublicQuestion,
@@ -59,13 +60,9 @@ export class SessionsService {
 
     const active = await this.prisma.session.findFirst({
       where: { userId, examId, status: 'active' },
+      select: { id: true },
     });
-    if (active) {
-      throw new ConflictException({
-        message: 'An active session already exists for this exam',
-        sessionId: active.id,
-      });
-    }
+    if (active) throw activeSessionConflict(active.id);
 
     const now = new Date();
     const overallEndsAt = new Date(now.getTime() + exam.durationOverall * 1000);
@@ -90,11 +87,9 @@ export class SessionsService {
       if (isUniqueViolation(error)) {
         const existing = await this.prisma.session.findFirst({
           where: { userId, examId, status: 'active' },
+          select: { id: true },
         });
-        throw new ConflictException({
-          message: 'An active session already exists for this exam',
-          sessionId: existing?.id,
-        });
+        if (existing) throw activeSessionConflict(existing.id);
       }
       throw error;
     }
@@ -531,6 +526,10 @@ function asQuestionType(value: string): QuestionType {
     throw new BadRequestException(`Unsupported question type ${value}`);
   }
   return value as QuestionType;
+}
+
+function activeSessionConflict(sessionId: string): ConflictException {
+  return new ConflictException(activeSessionConflictBody(sessionId));
 }
 
 function isUniqueViolation(error: unknown): boolean {

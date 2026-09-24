@@ -32,11 +32,12 @@ export default function ExamDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ['exams'] });
       router.push(`/sessions/${session.id}`);
     },
-    onError: (error) => {
-      const existing = sessionIdFromError(error);
-      if (existing) router.push(`/sessions/${existing}`);
-    },
   });
+
+  const existingSessionId = sessionIdFromError(start.error);
+  useEffect(() => {
+    if (existingSessionId) router.push(`/sessions/${existingSessionId}`);
+  }, [existingSessionId, router]);
 
   return (
     <Shell
