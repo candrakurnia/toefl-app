@@ -91,9 +91,9 @@ Authenticated routes expect `Authorization: Bearer <accessToken>`.
 | `POST`  | `/auth/register`                     | `{ email, password }` → user                                                                  |
 | `POST`  | `/auth/login`                        | `{ accessToken, refreshToken }` and refresh cookie                                            |
 | `POST`  | `/auth/refresh`                      | Cookie or `{ refreshToken }`                                                                  |
-| `GET`   | `/exams`                             | List with `not_started`, `in_progress`, or `completed`                                        |
+| `GET`   | `/exams`                             | List with `not_started`, `in_progress`, or `completed`, plus `activeSessionId`                |
 | `GET`   | `/exams/:id`                         | Sections, rules, question count                                                               |
-| `POST`  | `/exams/:id/sessions`                | Starts timers. `409` if an active session exists                                              |
+| `POST`  | `/exams/:id/sessions`                | Starts timers. `409` `{ statusCode, message, code, sessionId }` if an active session exists   |
 | `GET`   | `/sessions/:id`                      | State, both deadlines, answers, violations                                                    |
 | `GET`   | `/sessions/:id/questions?sectionId=` | Hides correct choices until submit                                                            |
 | `PATCH` | `/sessions/:id/answers`              | `{ questionId, payload }`. `409` `Attempt is readonly` after submit                           |

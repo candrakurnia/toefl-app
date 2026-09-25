@@ -13,9 +13,20 @@
 
 ## Exams
 
-- `GET /exams` → `{ id, title, durationOverall, status: not_started|in_progress|completed }[]`
+- `GET /exams` → `{ id, title, durationOverall, status: not_started|in_progress|completed, activeSessionId }[]`. `activeSessionId` is the in-progress session id, or `null`
 - `GET /exams/:id` → pra-test detail `{ sections[{ id, name, durationSec, questionTypes }], rules, questionCount }`
-- `POST /exams/:id/sessions` → create session; start overall + first section timers; reject if active session exists for user/exam
+- `POST /exams/:id/sessions` → create session; start overall + first section timers. Still rejected when this user already has an active session for the exam. That `409` body is enough to resume:
+
+```json
+{
+  "statusCode": 409,
+  "message": "An active session already exists for this exam",
+  "code": "ACTIVE_SESSION_EXISTS",
+  "sessionId": "<existing active session id>"
+}
+```
+
+`sessionId` is the in-progress session. Continue with `GET /sessions/:sessionId`. A second session is not created.
 
 ## Sessions / timer / anti-cheat
 

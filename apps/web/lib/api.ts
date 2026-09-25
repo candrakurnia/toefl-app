@@ -1,3 +1,5 @@
+import { sessionIdFromConflict } from '@toefl/shared';
+
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? '/backend';
 
 const ACCESS_KEY = 'toefl.accessToken';
@@ -22,9 +24,8 @@ export class ApiError extends Error {
 }
 
 export function sessionIdFromError(error: unknown): string | null {
-  if (!(error instanceof ApiError) || !error.body || typeof error.body !== 'object') return null;
-  const sessionId = (error.body as { sessionId?: unknown }).sessionId;
-  return typeof sessionId === 'string' ? sessionId : null;
+  if (!(error instanceof ApiError)) return null;
+  return sessionIdFromConflict(error.body);
 }
 
 export function getAccessToken() {
