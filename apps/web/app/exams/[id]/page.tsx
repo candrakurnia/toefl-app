@@ -3,12 +3,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExamDetail, ExamSummary, SessionState } from '@toefl/shared';
 import { Shell } from '../../../components/shell';
 import { useAuth } from '../../../components/providers';
-import { ApiError, api, sessionIdFromError } from '../../../lib/api';
+import { ApiError, api, resumeSessionId } from '../../../lib/api';
 import { formatDuration, formatQuestionType } from '../../../lib/format';
+import { activeSampleSessionId, subscribeSampleDb } from '../../../lib/sample-store';
 
 export default function ExamDetailPage() {
   const params = useParams<{ id: string }>();
@@ -37,8 +38,14 @@ export default function ExamDetailPage() {
     queryFn: () => api<ExamSummary[]>('/exams'),
     enabled: ready && Boolean(token),
   });
+  const [storedSessionId, setStoredSessionId] = useState<string | null>(null);
+  useEffect(() => {
+    const read = () => setStoredSessionId(activeSampleSessionId(examId ?? ''));
+    read();
+    return subscribeSampleDb(read);
+  }, [examId]);
   const summary = exams.data?.find((item) => item.id === examId);
-  const activeSessionId = summary?.activeSessionId ?? null;
+  const activeSessionId = summary?.activeSessionId ?? storedSessionId;
   const inProgress = summary?.status === 'in_progress' || Boolean(activeSessionId);
 
   const start = useMutation({
@@ -71,12 +78,12 @@ export default function ExamDetailPage() {
       const session = await start.mutateAsync(examId);
       openSession(session.id);
     } catch (error) {
-      const existing = sessionIdFromError(error);
+      const existing = resumeSessionId(error, activeSampleSessionId(examId));
       if (existing) openSession(existing);
     }
   }
 
-  const conflictSessionId = start.isError ? sessionIdFromError(start.error) : null;
+  const conflictSessionId = start.isError ? resumeSessionId(start.error, storedSessionId) : null;
   useEffect(() => {
     if (conflictSessionId) openSession(conflictSessionId);
   }, [conflictSessionId, openSession]);
