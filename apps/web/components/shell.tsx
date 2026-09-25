@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { SampleDataBanner } from './sample-banner';
 import { useAuth } from './providers';
 
 export function Shell({
@@ -14,6 +15,7 @@ export function Shell({
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
+      <SampleDataBanner />
       <header className="border-b border-ink/10 bg-card">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4">
           <Link href="/exams" className="flex items-center gap-3">

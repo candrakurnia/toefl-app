@@ -21,6 +21,7 @@ import {
 import { ApiError, api } from '../lib/api';
 import { formatCountdown } from '../lib/format';
 import { QuestionPanel } from './question-panel';
+import { SampleDataBanner } from './sample-banner';
 
 const HEARTBEAT_MS = 12_000;
 const AUTOSAVE_MS = 4_000;
@@ -501,6 +502,7 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
   if (sessionQuery.isLoading || (sessionQuery.data?.status === 'active' && !clock)) {
     return (
       <div className="min-h-screen bg-canvas">
+        <SampleDataBanner />
         <div className="mx-auto max-w-3xl px-5 py-16">
           <div className="h-64 animate-pulse rounded-card bg-ink/5" />
         </div>
@@ -510,16 +512,19 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
 
   if (sessionQuery.isError || !sessionQuery.data) {
     return (
-      <div className="min-h-screen bg-canvas px-5 py-16 text-ink">
-        <div className="mx-auto max-w-xl rounded-card border border-red-200 bg-card p-6 text-sm text-red-700">
-          <p>
-            {sessionQuery.error instanceof Error
-              ? sessionQuery.error.message
-              : 'Could not load this session'}
-          </p>
-          <Link href="/exams" className="mt-4 inline-block font-medium text-primary">
-            Back to exams
-          </Link>
+      <div className="min-h-screen bg-canvas text-ink">
+        <SampleDataBanner />
+        <div className="px-5 py-16">
+          <div className="mx-auto max-w-xl rounded-card border border-red-200 bg-card p-6 text-sm text-red-700">
+            <p>
+              {sessionQuery.error instanceof Error
+                ? sessionQuery.error.message
+                : 'Could not load this session'}
+            </p>
+            <Link href="/exams" className="mt-4 inline-block font-medium text-primary">
+              Back to exams
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -527,24 +532,27 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
 
   if (sessionQuery.data.status !== 'active' || clock?.status !== 'active') {
     return (
-      <div className="grid min-h-screen place-items-center bg-canvas px-5 text-ink">
-        <div className="w-full max-w-md rounded-card border border-ink/10 bg-card p-6 shadow-sm">
-          <h1 className="font-serif text-2xl">Opening your result</h1>
-          <p className="mt-2 text-sm leading-6 text-ink/70">
-            This session is already closed. The attempt keeps any partial scores.
-          </p>
-          {banner ? <p className="mt-3 text-sm text-red-700">{banner}</p> : null}
-          {banner ? (
-            <button
-              type="button"
-              onClick={() => void finishRef.current()}
-              className="mt-4 rounded-control bg-primary px-4 py-2.5 text-sm font-medium text-white"
-            >
-              Try again
-            </button>
-          ) : (
-            <p className="mt-4 text-sm text-ink/60">Submitting…</p>
-          )}
+      <div className="min-h-screen bg-canvas text-ink">
+        <SampleDataBanner />
+        <div className="grid min-h-[70vh] place-items-center px-5">
+          <div className="w-full max-w-md rounded-card border border-ink/10 bg-card p-6 shadow-sm">
+            <h1 className="font-serif text-2xl">Opening your result</h1>
+            <p className="mt-2 text-sm leading-6 text-ink/70">
+              This session is already closed. The attempt keeps any partial scores.
+            </p>
+            {banner ? <p className="mt-3 text-sm text-red-700">{banner}</p> : null}
+            {banner ? (
+              <button
+                type="button"
+                onClick={() => void finishRef.current()}
+                className="mt-4 rounded-control bg-primary px-4 py-2.5 text-sm font-medium text-white"
+              >
+                Try again
+              </button>
+            ) : (
+              <p className="mt-4 text-sm text-ink/60">Submitting…</p>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -574,6 +582,7 @@ export function ExamSession({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex min-h-screen flex-col bg-canvas text-ink">
+      <SampleDataBanner />
       <header className="sticky top-0 z-30 border-b border-ink/10 bg-card/95 shadow-sm backdrop-blur">
         <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-4 px-5 py-3">
           <p className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-sm font-medium text-ink">
