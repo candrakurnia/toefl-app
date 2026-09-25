@@ -1,4 +1,4 @@
-import { sessionIdFromConflict } from '@toefl/shared';
+import { ACTIVE_SESSION_CONFLICT_CODE, sessionIdFromConflict } from '@toefl/shared';
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? '/backend';
 
@@ -23,9 +23,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Active-session conflict from `POST /exams/:id/sessions`: 409 with `sessionId`,
+ * code `ACTIVE_SESSION_EXISTS`.
+ */
 export function sessionIdFromError(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
-  return sessionIdFromConflict(error.body);
+  const sessionId = sessionIdFromConflict(error.body);
+  if (!sessionId) return null;
+  if (error.status === 409 || conflictCode(error.body) === ACTIVE_SESSION_CONFLICT_CODE) {
+    return sessionId;
+  }
+  return null;
+}
+
+function conflictCode(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const code = (body as { code?: unknown }).code;
+  return typeof code === 'string' ? code : null;
 }
 
 export function getAccessToken() {
